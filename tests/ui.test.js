@@ -6,7 +6,8 @@ const { DOMParser } = require('@xmldom/xmldom');
 const Y = require('../yield.js');
 const tileStub = require('./tile-stub.js');
 const BASE = process.argv[2] || 'http://localhost:8231/';
-const SHOTS = process.argv[3] || '/workspace';
+const SHOTS = process.argv[3] || '/tmp/myl-test-shots';
+fs.mkdirSync(SHOTS, { recursive: true });
 const DL = fs.mkdtempSync('/tmp/myl-dl-');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const T0 = { lat: -24.98, lon: 152.38 };
@@ -80,13 +81,23 @@ let passed = 0; const ok = (name) => { passed++; console.log('ok -', name); };
   const t0 = await page.evaluate(() => Math.floor(App.state().trees)); await page.click('#treeUp'); assert.equal(await page.evaluate(() => Math.floor(App.state().trees)), t0 + 1);
   await page.click('#rowUp'); st = await page.evaluate(() => App.state()); assert.equal(st.row, 2); assert.equal(Math.floor(st.trees), 0); assert.equal(await page.$eval('#rowVal', e => e.textContent), '2');
   ok('Tree +1 override and row + (resets tree count)');
+  // auto row: U-turn detection
+  await page.evaluate(() => { const s = App.state(); s.row = 2; s.trees = 0; s.lastPromptTree = 0; s.settings.autoRow = true; s.settings.every = 0; App.save(); App.setTrees(0); });
+  await driveTo(176); await sleep(2200);                       // still heading north
+  for (let i = 1; i <= 3; i++) { await page.setGeolocation(north(176 - i * 8)); await sleep(2100); }
+  await sleep(1200);
+  assert.equal(await page.evaluate(() => App.state().row), 3, 'auto row after U-turn');
+  const tr0 = await page.evaluate(() => App.state().trees);
+  assert.ok(tr0 < 3, 'tree count reset on auto row (was 1-2 trees past the turn, got ' + tr0 + ')');
+  await page.evaluate(() => { App.state().settings.every = 10; App.save(); });
+  ok('auto row +1 detected from the U-turn heading, tree count reset');
 
   // ---- count / bin weight keypad ----
   await page.click('#btnCount'); await page.waitForSelector('#pad:not(.hidden)');
   for (const k of ['1', '2', '3']) await page.click(`#keys [data-k="${k}"]`);
   await page.click('#pad [data-unit="kg"]'); for (const k of ['4', '5', '.', '5']) await page.click(`#keys [data-k="${k}"]`);
   await page.click('#padSave'); st = await page.evaluate(() => App.state()); const cm = st.marks[st.marks.length - 1];
-  assert.equal(cm.count, 123); assert.equal(cm.kg, 45.5); assert.equal(cm.row, '2');
+  assert.equal(cm.count, 123); assert.equal(cm.kg, 45.5); assert.equal(cm.row, String(await page.evaluate(() => App.state().row)));
   ok('count / weight keypad saved 123 nuts + 45.5 kg at the GPS point');
   await page.click('#btnCount'); await page.click('#pad [data-unit="kg"]'); for (const k of ['3', '9', '0']) await page.click(`#keys [data-k="${k}"]`); await page.click('#padSave');
   // undo

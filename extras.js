@@ -12,7 +12,7 @@
   var aboutMap = null;
   function mapsQuery() { return encodeURIComponent(ABOUT.address + ' Australia'); }
   function openAbout() {
-    closeHelp(); $('sheet').classList.add('hidden');
+    closeHelp(); $('sheet').classList.add('hidden'); var t = $('toast'); if (t) t.classList.remove('show');
     $('about').classList.remove('hidden'); $('about').scrollTop = 0;
     if (window.L && !aboutMap) {
       var ll = [ABOUT.pin.lat, ABOUT.pin.lon];
@@ -114,7 +114,7 @@
     $('helpForm').onsubmit = function (e) { e.preventDefault(); var i = $('helpInput'); var q = i.value; i.value = ''; ask(q); };
     addMsg('bot', "G'day, I'm Macca, the Yield Marker Helper! Ask me how something works, or tap a topic below. I work offline.");
   }
-  function openHelp() { buildHelp(); $('help').classList.remove('hidden'); setTimeout(function () { chatLog.scrollTop = chatLog.scrollHeight; }, 50); }
+  function openHelp() { buildHelp(); var t = $('toast'); if (t) t.classList.remove('show'); $('help').classList.remove('hidden'); setTimeout(function () { chatLog.scrollTop = chatLog.scrollHeight; }, 50); }
   function closeHelp() { var h = $('help'); if (h) h.classList.add('hidden'); }
 
   // =================== Ad strip ===================

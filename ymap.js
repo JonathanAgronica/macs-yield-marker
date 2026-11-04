@@ -4,7 +4,7 @@
   'use strict';
   var TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
   var ATTR = 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community';
-  var SAVED_CACHE = 'myl-tiles-saved', SAVE_LIMIT = 1500, MAX_NATIVE = 19;
+  var SAVED_CACHE = 'myl-tiles-saved', SAVE_LIMIT = 1500, MAX_NATIVE = 18;   // Esri World Imagery has 'Map data not yet available' gaps at z19 over parts of rural QLD; z19 is upscaled from z18
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function imageryUrl() { return lsGet('myl-tile-url') || TILE_URL; }   // test hook
 
@@ -55,8 +55,8 @@
 
   function create(host, opts) {
     opts = opts || {};
-    var map = L.map(host, { zoomControl: true, attributionControl: true, maxZoom: 21 }).setView([-24.87, 152.35], 13);
-    L.tileLayer(imageryUrl(), { maxNativeZoom: MAX_NATIVE, maxZoom: 21, attribution: ATTR, crossOrigin: true }).addTo(map);
+    var map = L.map(host, { zoomControl: true, attributionControl: true, maxZoom: MAX_NATIVE + 1 }).setView([-24.87, 152.35], 13);
+    L.tileLayer(imageryUrl(), { maxNativeZoom: MAX_NATIVE, maxZoom: MAX_NATIVE + 1, attribution: ATTR, crossOrigin: true }).addTo(map);
     L.control.scale({ imperial: false }).addTo(map);
     var heat = new Heat().addTo(map), dots = L.layerGroup().addTo(map), track = L.polyline([], { color: '#2d9cff', weight: 3, opacity: 0.8 }).addTo(map);
     var me = L.circleMarker([0, 0], { radius: 8, color: '#fff', weight: 3, fillColor: '#2d9cff', fillOpacity: 1 });
@@ -98,7 +98,7 @@
       else el.innerHTML = rg ? '<span class="lg-min">' + fmt(rg.min) + '</span><span class="lg-bar"></span><span class="lg-max">' + fmt(rg.max) + (st.mode === 'kg' ? ' kg' : st.mode === 'count' ? ' nuts' : '') + '</span>' : '<span class="dim">No ' + (st.mode === 'kg' ? 'weights' : st.mode === 'count' ? 'counts' : 'estimates') + ' yet</span>';
     }
     function fmt(v) { return Math.round(v * 10) / 10; }
-    function fit(pts) { if (!pts.length) return; var b = L.latLngBounds(pts.map(function (p) { return [p.lat, p.lon]; })); map.fitBounds(b.pad(0.25), { maxZoom: 19, animate: false }); }
+    function fit(pts) { if (!pts.length) return; var b = L.latLngBounds(pts.map(function (p) { return [p.lat, p.lon]; })); map.fitBounds(b.pad(0.25), { maxZoom: 18, animate: false }); }
     function setPos(p) {
       if (!p) return; me.setLatLng([p.lat, p.lon]); if (!map.hasLayer(me)) me.addTo(map);
       if (st.follow) map.setView([p.lat, p.lon], Math.max(map.getZoom(), 17), { animate: false });
