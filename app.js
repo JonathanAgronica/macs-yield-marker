@@ -280,7 +280,9 @@
   // ---------- views ----------
   var view = 'mark', mapView = null;
   function setView(v) {
+    var prev = view;
     view = v; document.body.setAttribute('data-view', v);
+    if (prev === 'photo' && v !== 'photo' && window.Photo && window.Photo.hidden) window.Photo.hidden();   // release the camera when leaving the tab
     [['viewMark', 'mark'], ['viewMap', 'map'], ['viewSum', 'sum'], ['viewPhoto', 'photo']].forEach(function (x) { $(x[0]).classList.toggle('active', x[1] === v); });
     [].forEach.call(document.querySelectorAll('.tabs button'), function (b) { var on = b.getAttribute('data-v') === v; b.classList.toggle('active', on); b.setAttribute('aria-selected', on); });
     if (v === 'map') {

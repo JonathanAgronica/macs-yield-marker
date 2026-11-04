@@ -165,6 +165,7 @@ input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;bac
 #sheet{position:fixed;inset:0;background:linear-gradient(180deg,#0b0b0bd1,#0b0b0bc4 40%,#0b0b0be6),url(img/bg-macadamia-grove.webp) 50% 40%/cover no-repeat fixed var(--bg);z-index:30;padding:12px;overflow:auto;padding-top:max(12px,env(safe-area-inset-top));animation:sheetIn .3s var(--ease)}
 @keyframes sheetIn{from{transform:translateY(30px);opacity:0}to{transform:none;opacity:1}}
 .hidden{display:none!important}
+[hidden]{display:none!important}   /* author display rules (flex/grid) must not resurrect a hidden control */
 .sheet-head{display:flex;justify-content:space-between;align-items:center;margin:10px 0}
 #sheet>.sheet-head:first-child{margin:0 0 12px;padding:26px 14px 14px;border-radius:18px;border:1px solid var(--line);font-size:20px;
   background:linear-gradient(180deg,#00000066,#000000cc),url(img/harvest-nuts.webp) 50% 40%/cover #1c1c1c;box-shadow:var(--shadow)}

@@ -33,7 +33,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.setRequestInterception(true);
   page.on('request', r => {
     if (/\/config\.js(\?|$)/.test(r.url())) return r.respond({ status: 200, contentType: 'application/javascript',
-      body: `window.YM_CONFIG={INGEST_URL:'http://127.0.0.1:${port}/api/yield/submit',INGEST_KEY:'test-key',INGEST_URL_PLACEHOLDER:'',AI_COUNT_URL:'',FARM:'Alloway',APP_VERSION:'v2'};` });
+      body: `window.YM_CONFIG={INGEST_URL:'http://127.0.0.1:${port}/api/yield/submit',INGEST_KEY:'test-key',INGEST_URL_PLACEHOLDER:'',AI_COUNT_URL:'',FARM:'Alloway',APP_VERSION:'v3'};` });
     r.continue();
   });
   await page.goto(BASE, { waitUntil: 'networkidle0' });
@@ -59,7 +59,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   assert.equal(got.length, 1, 'expected one session POST, got ' + got.length);
   const body = got[0].j;
   assert.ok(!('session' in body), 'no nested session object');
-  assert.equal(body.deviceId.length, 36); assert.equal(body.appVersion, 'v2'); assert.equal(body.farm, 'Alloway');
+  assert.equal(body.deviceId.length, 36); assert.equal(body.appVersion, 'v3'); assert.equal(body.farm, 'Alloway');
   assert.equal(body.block, 'Block 7'); assert.equal(body.variety, 'A16'); assert.equal(body.sessionId, 'up1');
   assert.ok(!isNaN(Date.parse(body.submittedAt)));
   ['deviceId', 'appVersion', 'sessionId', 'submittedAt', 'farm', 'block', 'variety', 'contact'].forEach(k => assert.ok(k in body || k === 'contact', 'flat key ' + k));

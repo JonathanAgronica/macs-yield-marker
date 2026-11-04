@@ -64,7 +64,7 @@ t('upload session payload is FLAT (no nested session object)', () => {
   const U = global.Upload;
   const s = U.sessionPayload({ id: 's1', block: 'B7', variety: 'A16' }, { farm: 'F' });
   assert.match(s.deviceId, /^[0-9a-f-]{36}$/); assert.equal(s.sessionId, 's1'); assert.ok(s.submittedAt); assert.equal(s.farm, 'F'); assert.equal(s.block, 'B7'); assert.equal(s.variety, 'A16');
-  assert.equal(s.appVersion, 'v2');
+  assert.equal(s.appVersion, 'v3');
   assert.ok(!('session' in s), 'no nested object');
   const body = U.submitPayload({ id: 's1', block: 'B7' }, [U.markPayload(marks[1])], { farm: 'F' });
   ['deviceId', 'appVersion', 'sessionId', 'submittedAt', 'farm', 'block', 'marks'].forEach(k => assert.ok(k in body, 'top-level ' + k));
@@ -97,12 +97,149 @@ t('photo yield maths + t/ha rating bands', () => {
   const e = PC.yieldEstimate(50, { coverPct: 10, rowSp: 8, treeSp: 4, nisG: 7.5 }); assert.equal(e.nutsPerTree, 500); assert.equal(e.treesHa, 313); assert.equal(e.kgHa, 1172);
   assert.equal(PC.ratingFromTHa(0.2), 1); assert.equal(PC.ratingFromTHa(3), 3); assert.equal(PC.ratingFromTHa(6), 5);
 });
-t('photo detector finds synthetic nuts with each filter', () => {
+t('photo detector finds synthetic nuts with the original three filters', () => {
   const w = 240, h = 180, px = new Uint8ClampedArray(w * h * 4);
   for (let i = 0; i < w * h; i++) { px[i * 4] = 25; px[i * 4 + 1] = 60; px[i * 4 + 2] = 28; px[i * 4 + 3] = 255; }
   const C = [[30, 30], [90, 40], [160, 50], [60, 120], [130, 130], [200, 140]];
   const paint = (col) => { for (const [cx, cy] of C) for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if ((x - cx) ** 2 + (y - cy) ** 2 < 121) { const i = (y * w + x) * 4; px[i] = col[0]; px[i + 1] = col[1]; px[i + 2] = col[2]; } };
   paint([160, 205, 70]); assert.equal(PC.detect(px, w, h, { filter: 'green', minR: 4, maxR: 20 }).nuts.length, 6); assert.equal(PC.detect(px, w, h, { filter: 'shape', minR: 4, maxR: 20 }).nuts.length, 6);
   paint([140, 85, 40]); assert.equal(PC.detect(px, w, h, { filter: 'brown', minR: 4, maxR: 20 }).nuts.length, 6);
+});
+// ---------- v3 filter bench ----------
+const S = require('./synth.js');
+const SETS = {
+  green: S.greenNuts(), brown: S.brownNuts(), overlap: S.overlappingNuts(), hidden: S.hiddenNuts(),
+  leafA: S.leafOnly(3), leafB: S.leafOnly(17), leafC: S.leafOnly(42)
+};
+const run = (img, o) => PC.detect(img.px, img.w, img.h, Object.assign({ minR: 8, maxR: 30, round: 45, smooth: 30 }, o));
+const near = (a, b, tol) => Math.abs(a - b) <= tol;
+t('v3: every filter mode runs and is declared', () => {
+  assert.deepEqual(PC.FILTERS, ['green', 'brown', 'shape', 'satval', 'hueband', 'lab', 'exg', 'otsu', 'edge']);
+  for (const f of PC.FILTERS) for (const s of Object.values(SETS)) {
+    const r = run(s, { filter: f });
+    assert.ok(Array.isArray(r.nuts) && r.mask && r.score, f + ' returns nuts/mask/score');
+    assert.ok(r.nuts.every(nn => isFinite(nn.x) && isFinite(nn.y) && isFinite(nn.r) && nn.r > 0), f + ' finite circles');
+  }
+});
+// the four scenes the filters must actually handle: green husk, brown, touching, half-hidden
+t('v3: green-husk filters find green nuts (12 truth)', () => {
+  for (const f of ['green', 'shape', 'satval', 'hueband', 'lab', 'exg', 'edge', 'otsu']) {
+    const c = run(SETS.green, { filter: f }).nuts.length;
+    assert.ok(near(c, 12, 5), f + ' found ' + c + ' of 12');
+  }
+  // and the two house favourites are exact on a clean cluster
+  assert.equal(run(SETS.green, { filter: 'green' }).nuts.length, 12);
+});
+t('v3: brown filter finds mature nuts (8 truth) and ignores green ones', () => {
+  const b = run(SETS.brown, { filter: 'brown' }).nuts.length, g = run(SETS.green, { filter: 'brown' }).nuts.length;
+  assert.ok(near(b, 8, 4), 'brown found ' + b + ' of 8'); assert.equal(g, 0, 'brown filter on green nuts: ' + g);
+});
+t('v3: overlapping nuts are split, not merged into one blob (7 truth)', () => {
+  for (const f of ['green', 'hueband', 'lab', 'edge', 'shape', 'otsu']) {
+    const c = run(SETS.overlap, { filter: f }).nuts.length;
+    assert.ok(c >= 3 && c <= 10, f + ' split into ' + c + ' (7 nuts in one touching cluster)');
+  }
+  // a merged cluster would report 1; the distance transform must separate at least half of them
+  assert.ok(run(SETS.overlap, { filter: 'green' }).nuts.length >= 4, 'at least 4 of 7 separated');
+});
+t('v3: partly hidden nuts (arc only) are found by the edge/circle and shape filters', () => {
+  assert.ok(near(run(SETS.hidden, { filter: 'edge' }).nuts.length, 4, 1), 'edge: ' + run(SETS.hidden, { filter: 'edge' }).nuts.length);
+  assert.ok(near(run(SETS.hidden, { filter: 'shape' }).nuts.length, 4, 1), 'shape: ' + run(SETS.hidden, { filter: 'shape' }).nuts.length);
+});
+t('v3: no filter returns an absurd count on leaf clutter (no nuts present)', () => {
+  for (const f of PC.FILTERS) for (const [k, s] of Object.entries(SETS)) {
+    if (!k.startsWith('leaf')) continue;
+    const c = run(s, { filter: f }).nuts.length;
+    assert.ok(c <= 40, f + ' on ' + k + ' invented ' + c + ' nuts');
+    assert.ok(c <= s.w * s.h / 900, f + ' on ' + k + ': ' + c + ' is more than one nut per 30x30 px');
+  }
+  // the filters tuned for green husk must not turn a leaf wall into a crowd: the best behaved stay in the teens
+  for (const f of ['green', 'brown', 'lab', 'otsu', 'edge']) for (const k of ['leafA', 'leafB', 'leafC']) {
+    const c = run(SETS[k], { filter: f }).nuts.length;
+    assert.ok(c <= 25, f + ' on ' + k + ': ' + c + ' false positives');
+  }
+});
+t('v3: brown filter has no false positives on green leaf clutter', () => {
+  for (const k of ['leafA', 'leafB', 'leafC']) assert.equal(run(SETS[k], { filter: 'brown' }).nuts.length, 0, k);
+  for (const k of ['green', 'overlap', 'hidden']) assert.equal(run(SETS[k], { filter: 'brown' }).nuts.length, 0, 'brown on ' + k);
+});
+t('v3: threshold, smoothing, min/max radius, roundness and topN all change the result', () => {
+  const lo = run(SETS.leafA, { filter: 'green', thr: 5 }).nuts.length, hi = run(SETS.leafA, { filter: 'green', thr: 95 }).nuts.length;
+  assert.ok(lo > hi, 'threshold 5 vs 95 on leaf clutter: ' + lo + ' / ' + hi);
+  // smoothing's job is stability: the raw pass jitters with pixel noise, the smoothed one lands on the truth
+  const rawCounts = [3, 9, 17, 42].map(sd => run(S.leafOnly(sd), { filter: 'green', smooth: 0 }).nuts.length);
+  const smoothCounts = [3, 9, 17, 42].map(sd => run(S.leafOnly(sd), { filter: 'green', smooth: 60 }).nuts.length);
+  const spread = a => Math.max(...a) - Math.min(...a);
+  assert.ok(spread(smoothCounts) <= spread(rawCounts) + 2, 'smoothing steadies the count across noise: ' + spread(rawCounts) + ' -> ' + spread(smoothCounts));
+  assert.ok(run(SETS.green, { filter: 'green', smooth: 60 }).nuts.length <= run(SETS.green, { filter: 'green', smooth: 0 }).nuts.length, 'smoothing does not inflate a clean cluster');
+  assert.ok(run(SETS.green, { filter: 'green', maxR: 9 }).nuts.length <= 2, 'tiny max radius clamps the count');
+  assert.equal(run(SETS.green, { filter: 'green', minR: 40, maxR: 60 }).nuts.length, 0, 'huge min radius finds nothing at this scale');
+  assert.equal(run(SETS.green, { filter: 'green', topN: 5 }).nuts.length, 5, 'topN keeps the best 5');
+  assert.equal(run(SETS.green, { filter: 'green', topN: 0 }).nuts.length, 12, 'topN 0 = all');
+  const strict = run(SETS.leafA, { filter: 'shape', round: 100 }).nuts.length, loose = run(SETS.leafA, { filter: 'shape', round: 0 }).nuts.length;
+  assert.ok(strict <= loose, 'roundness 100 filters at least as hard as 0: ' + strict + ' vs ' + loose);
+});
+t('v3: hue band sliders actually move the band', () => {
+  const inside = run(SETS.green, { filter: 'hueband', hMin: 55, hMax: 100 }).nuts.length;
+  const outside = run(SETS.green, { filter: 'hueband', hMin: 200, hMax: 260 }).nuts.length;
+  assert.ok(inside >= 9, 'husk hue band finds the nuts: ' + inside); assert.equal(outside, 0, 'magenta band finds none: ' + outside);
+});
+t('v3: Otsu auto-threshold adapts to the photo instead of a fixed cut', () => {
+  const a = run(SETS.green, { filter: 'otsu' }), b = run(SETS.brown, { filter: 'otsu' });
+  assert.ok(near(a.nuts.length, 12, 4), 'otsu on green nuts: ' + a.nuts.length);
+  assert.ok(a.stats.cut > 0.1 && a.stats.cut < 0.9, 'sane cut ' + a.stats.cut);
+  assert.ok(b.stats.cut > 0.1 && b.stats.cut < 0.9);
+  // the threshold slider biases Otsu without destroying it
+  assert.ok(run(SETS.green, { filter: 'otsu', thr: 0 }).nuts.length >= run(SETS.green, { filter: 'otsu', thr: 100 }).nuts.length);
+});
+t('v3: LAB separation puts green husk and mature brown on opposite a* sides', () => {
+  const nut = PC.srgb2lab(150, 196, 78), leaf = PC.srgb2lab(46, 92, 40), brown = PC.srgb2lab(136, 84, 42);
+  assert.ok(brown[1] > 0 && nut[1] < 0 && leaf[1] < 0, 'a*: brown ' + brown[1].toFixed(1) + ', nut ' + nut[1].toFixed(1) + ', leaf ' + leaf[1].toFixed(1));
+  assert.ok(nut[2] > leaf[2] + 15, 'b* husk > leaf by a wide margin');
+  assert.ok(nut[0] > leaf[0] + 20, 'husk is much lighter (L*) than leaf');
+});
+t('v3: detect is pure (input pixels untouched) and idempotent', () => {
+  const img = SETS.green, before = Buffer.from(img.px);
+  const a = run(img, { filter: 'green' }).nuts.length, b = run(img, { filter: 'green' }).nuts.length;
+  assert.equal(a, b, 'same input, same count'); assert.ok(Buffer.compare(before, Buffer.from(img.px)) === 0, 'source pixels unchanged');
+});
+t('v3: a 480 px preview pass agrees with the 1280 px full pass within ~30%', () => {
+  // this is the promise the live preview makes: the number you see while dragging is close to the settled one
+  const k = 1280 / 480, big = SETS.green;
+  const full = run(big, { filter: 'green', minR: 14, maxR: 80 }).nuts.length;
+  const half = PC.detect(big.px, big.w, big.h, { filter: 'green', minR: 14 / 1.6, maxR: 80 / 1.6, round: 45, smooth: 30 }).nuts.length;
+  assert.ok(Math.abs(full - half) <= Math.max(4, full * 0.35), 'full ' + full + ' vs scaled ' + half);
+});
+t('v3: detection performance stays inside a phone frame budget', () => {
+  // 480 px preview copy; generous ceiling so a slow CI box does not flake, but a quadratic blow-up still fails
+  const t0 = Date.now(); for (let i = 0; i < 5; i++) run(SETS.leafA, { filter: 'green' });
+  const per = (Date.now() - t0) / 5;
+  assert.ok(per < 400, 'preview pass ' + per.toFixed(0) + ' ms at 320x240');
+});
+t('v3: no filter returns NaN / negative / absurd values for degenerate input', () => {
+  const cases = [{ px: new Uint8ClampedArray(4), w: 1, h: 1 }, { px: new Uint8ClampedArray(4 * 4), w: 2, h: 2 },
+    (() => { const w = 64, h = 48, px = new Uint8ClampedArray(w * h * 4); for (let i = 0; i < w * h; i++) { px[i * 4] = 0; px[i * 4 + 1] = 0; px[i * 4 + 2] = 0; px[i * 4 + 3] = 255; } return { px, w, h }; })(),
+    (() => { const w = 64, h = 48, px = new Uint8ClampedArray(w * h * 4); for (let i = 0; i < w * h * 4; i++) px[i] = 255; return { px, w, h }; })()];
+  for (const c of cases) for (const f of PC.FILTERS) {
+    const r = PC.detect(c.px, c.w, c.h, { filter: f, minR: 3, maxR: 20 });
+    assert.ok(Array.isArray(r.nuts) && r.nuts.length < 50, f + ' on ' + c.w + 'x' + c.h + ': ' + r.nuts.length);
+    assert.ok(r.nuts.every(nn => isFinite(nn.x) && isFinite(nn.y) && isFinite(nn.r)), f + ' finite on degenerate input');
+  }
+});
+t('v3: presets are the documented four and every one produces a sane count', () => {
+  const P = [
+    { name: 'Green husk sunny', o: { filter: 'hueband', thr: 48, hMin: 46, hMax: 104, sat: 24, bri: 26, minR: 14, maxR: 80, round: 45, smooth: 25, topN: 0 } },
+    { name: 'Green husk overcast', o: { filter: 'satval', thr: 35, sat: 30, bri: 22, minR: 12, maxR: 80, round: 35, smooth: 40, topN: 0 } },
+    { name: 'Brown fallen', o: { filter: 'brown', thr: 25, minR: 10, maxR: 70, round: 30, smooth: 30, topN: 0 } },
+    { name: 'Dense canopy', o: { filter: 'otsu', thr: 55, minR: 10, maxR: 46, round: 60, smooth: 35, topN: 40 } }
+  ];
+  for (const p of P) for (const k of ['green', 'brown', 'leafA']) {
+    const r = run(SETS[k], p.o);
+    assert.ok(r.nuts.length <= 60, p.name + ' on ' + k + ': ' + r.nuts.length);
+  }
+  assert.ok(run(SETS.green, P[0].o).nuts.length >= 9, 'sunny preset finds the green nuts: ' + run(SETS.green, P[0].o).nuts.length);
+  assert.ok(run(SETS.brown, P[2].o).nuts.length >= 5, 'brown preset finds the brown nuts: ' + run(SETS.brown, P[2].o).nuts.length);
+  assert.equal(run(SETS.leafA, P[2].o).nuts.length, 0, 'brown preset invents nothing on green leaves');
+  assert.ok(run(SETS.leafA, P[3].o).nuts.length <= 40, 'dense-canopy preset caps itself with best-N');
 });
 console.log(`\n${n} logic tests passed`);

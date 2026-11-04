@@ -130,19 +130,61 @@
     <div class="scroll">
       <div class="card">
         <div class="card-title">Photo count <span class="dim small-txt">on-device estimate</span></div>
-        <div class="btn-row two"><button id="phTake" class="start" type="button"><svg class="ic"><use href="#i-pin"/></svg><span>Take photo</span></button><button id="phPick" class="soft" type="button"><svg class="ic"><use href="#i-upload"/></svg><span>Choose photo</span></button></div>
+        <div class="btn-row three">
+          <button id="phLive" class="soft" type="button"><svg class="ic"><use href="#i-scale"/></svg><span>Live</span></button>
+          <button id="phTake" class="start" type="button"><svg class="ic"><use href="#i-pin"/></svg><span>Take photo</span></button>
+          <button id="phPick" class="soft" type="button"><svg class="ic"><use href="#i-upload"/></svg><span>Choose</span></button>
+        </div>
         <input type="file" id="phCam" accept="image/*" capture="environment" hidden><input type="file" id="phFile" accept="image/*" hidden>
-        <div id="phTag" class="dim small-txt"></div>
+        <div id="phTag" class="dim small-txt ph-tag"></div>
       </div>
-      <div id="phWrap" class="ph-wrap empty"><canvas id="phCanvas" width="640" height="480"></canvas><div class="ph-empty">Take a photo of a section of canopy. Nuts found are circled; tap a circle to remove it, tap a nut to add one.</div></div>
-      <div class="card">
+      <div class="ph-stage" id="phStage">
+        <div id="phWrap" class="ph-wrap empty">
+          <canvas id="phCanvas" width="640" height="480"></canvas>
+          <video id="phVideo" playsinline muted autoplay hidden></video>
+          <div class="ph-empty">Take a photo of a section of canopy. Nuts found are circled; tap a circle to remove it, tap a nut to add one.</div>
+          <div class="ph-badge" id="phBadge"><b id="phNBadge">0</b><span>nuts</span></div>
+          <div class="ph-busy hidden" id="phBusy">Analysing</div>
+        </div>
+        <div id="phShutterRow" class="btn-row one" hidden><button id="phShutter" class="start full" type="button"><span>Capture</span></button></div>
+        <div class="seg ph-view" role="tablist" aria-label="View">
+          <button type="button" data-v="original" role="tab" aria-selected="false">Original</button>
+          <button type="button" data-v="highlight" class="on" role="tab" aria-selected="true">Highlight</button>
+          <button type="button" data-v="compare" role="tab" aria-selected="false">Compare</button>
+        </div>
+        <div class="field ph-swipe" id="phSwipeRow" hidden><label for="phSwipe">Swipe compare <b id="phSwipeV">50%</b></label><input type="range" id="phSwipe" min="0" max="100" value="50"></div>
         <div class="ph-count"><b id="phN">0</b><span>nuts <small id="phNsub" class="dim"></small></span></div>
-        <div class="seg ph-seg" role="tablist" aria-label="Filter"><button type="button" data-f="green" class="on">Green husk</button><button type="button" data-f="brown">Brown nut</button><button type="button" data-f="shape">Edge / circle</button></div>
-        <label class="chk"><input id="phEnh" type="checkbox"> Contrast enhance (CLAHE-style)</label>
+      </div>
+      <div class="card">
+        <div class="ph-filters" role="group" aria-label="Filter">
+          <button type="button" data-f="green" class="on">Green husk</button>
+          <button type="button" data-f="brown">Brown</button>
+          <button type="button" data-f="shape">Shape</button>
+          <button type="button" data-f="satval">Sat+value</button>
+          <button type="button" data-f="hueband">Hue band</button>
+          <button type="button" data-f="lab">LAB a/b</button>
+          <button type="button" data-f="exg">ExG/blue</button>
+          <button type="button" data-f="otsu">Otsu auto</button>
+          <button type="button" data-f="edge">Edge/circle</button>
+        </div>
+        <div id="phFilterNote" class="dim small-txt ph-note"></div>
+        <div class="ph-preset-row">
+          <select id="phPreset" aria-label="Preset"></select>
+          <button id="phPresetSave" class="soft small" type="button"><span>Save</span></button>
+          <button id="phPresetDel" class="soft small" type="button"><span>Del</span></button>
+        </div>
+        <div id="phPresetNameRow" class="ph-name-row" hidden><input id="phPresetName" type="text" placeholder="Preset name" maxlength="40"><button id="phPresetOk" class="soft small" type="button"><span>OK</span></button></div>
         <div class="field"><label for="phThr">Threshold <b id="phThrV"></b></label><input type="range" id="phThr" min="0" max="100" value="50"></div>
-        <div class="field"><label for="phMin">Min nut size (px) <b id="phMinV"></b></label><input type="range" id="phMin" min="2" max="60" value="8"></div>
-        <div class="field"><label for="phMax">Max nut size (px) <b id="phMaxV"></b></label><input type="range" id="phMax" min="6" max="160" value="45"></div>
-        <div class="field"><label for="phRnd">Roundness <b id="phRndV"></b></label><input type="range" id="phRnd" min="0" max="100" value="45"></div>
+        <div class="field"><label for="phHueMin">Hue min <b id="phHueMinV"></b></label><input type="range" id="phHueMin" min="0" max="330" value="48"></div>
+        <div class="field"><label for="phHueMax">Hue max <b id="phHueMaxV"></b></label><input type="range" id="phHueMax" min="30" max="360" value="96"></div>
+        <div class="field"><label for="phSat">Saturation <b id="phSatV"></b></label><input type="range" id="phSat" min="0" max="90" value="22"></div>
+        <div class="field"><label for="phBri">Brightness <b id="phBriV"></b></label><input type="range" id="phBri" min="0" max="90" value="25"></div>
+        <div class="field"><label for="phMin">Min nut size <b id="phMinV"></b></label><input type="range" id="phMin" min="3" max="60" value="14"></div>
+        <div class="field"><label for="phMax">Max nut size <b id="phMaxV"></b></label><input type="range" id="phMax" min="10" max="160" value="80"></div>
+        <div class="field"><label for="phRnd">Roundness / fill <b id="phRndV"></b></label><input type="range" id="phRnd" min="0" max="100" value="45"></div>
+        <div class="field"><label for="phSm">Smoothing <b id="phSmV"></b></label><input type="range" id="phSm" min="0" max="100" value="30"></div>
+        <div class="field"><label for="phTopN">Only show best N <b id="phTopNV"></b></label><input type="range" id="phTopN" min="0" max="100" value="0"></div>
+        <label class="chk"><input id="phEnh" type="checkbox"> Contrast enhance (CLAHE-style)</label>
         <div class="btn-row two"><button id="phReset" class="soft" type="button"><span>Clear my edits</span></button><button id="phAi" class="soft" type="button" disabled title="Server-side AI count (coming)"><span>AI count</span></button></div>
         <div id="phAiNote" class="dim small-txt"></div>
       </div>

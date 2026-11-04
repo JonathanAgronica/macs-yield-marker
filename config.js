@@ -7,7 +7,7 @@
     INGEST_URL_PLACEHOLDER: 'https://170-64-148-102.sslip.io/api/yield/submit',
     AI_COUNT_URL: '',        // future server-side AI nut count on AgronicaWorld (POST multipart: photo + meta). Blank = button disabled. Never put API keys here.
     FARM: '',                // optional default farm name
-    APP_VERSION: 'v2'
+    APP_VERSION: 'v3'
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = cfg; else root.YM_CONFIG = cfg;
 })(typeof self !== 'undefined' ? self : this);

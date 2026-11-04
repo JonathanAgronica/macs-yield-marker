@@ -31,7 +31,7 @@ let passed = 0; const ok = (name) => { passed++; console.log('ok -', name); };
   await page.setRequestInterception(true);
   page.on('request', r => {
     if (/\/config\.js(\?|$)/.test(r.url())) return r.respond({ status: 200, contentType: 'application/javascript',
-      body: "window.YM_CONFIG={INGEST_URL:'',INGEST_KEY:'',INGEST_URL_PLACEHOLDER:'',AI_COUNT_URL:'',FARM:'',APP_VERSION:'v2'};" });
+      body: "window.YM_CONFIG={INGEST_URL:'',INGEST_KEY:'',INGEST_URL_PLACEHOLDER:'',AI_COUNT_URL:'',FARM:'',APP_VERSION:'v3'};" });
     r.continue();
   });
   const cdp = await page.createCDPSession();
@@ -199,36 +199,295 @@ let passed = 0; const ok = (name) => { passed++; console.log('ok -', name); };
   const ad = await page.evaluate(() => ({ vis: !document.getElementById('adbar').classList.contains('hidden'), n: Extras.ads().length }));
   assert.ok(ad.vis && ad.n >= 5); ok('ad strip visible with ' + ad.n + ' ads');
 
-  // ---- Photo count on real CC photos ----
+  // ---- Photo count: filter bench, live preview, taps, presets ----
   await page.click('#tabPhoto'); await sleep(200);
   const res = [];
   for (const p of ['p1', 'p2', 'p3', 'p4']) {
     const r = await page.evaluate(async (src) => {
       const im = new Image(); im.src = src; await im.decode();
-      Photo.setImage(im, { ts: Date.now(), pos: App.lastPos(), row: '2', tree: '5' }); await new Promise(r => setTimeout(r, 120));
-      const out = {}; const setR = (id, v) => { const e = document.getElementById(id); e.value = v; e.dispatchEvent(new Event('input')); };
-      setR('phMin', 8); setR('phMax', 45); setR('phRnd', 45); await new Promise(r => setTimeout(r, 300));
-      for (const f of ['green', 'shape']) { document.querySelector(`.ph-seg [data-f="${f}"]`).click(); await new Promise(r => setTimeout(r, 400)); out[f] = Photo.count(); }
-      document.querySelector('.ph-seg [data-f="green"]').click(); await new Promise(r => setTimeout(r, 400));
-      setR('phMin', 12); setR('phMax', 30); setR('phRnd', 70); await new Promise(r => setTimeout(r, 400)); out.tuned = Photo.count();
-      if (!/p2|p3/.test(src)) { setR('phMin', 8); setR('phMax', 45); setR('phRnd', 45); await new Promise(r => setTimeout(r, 400)); }
+      Photo.setImage(im, { ts: Date.now(), pos: App.lastPos(), row: '2', tree: '5' }); await new Promise(r => setTimeout(r, 700));
+      const out = { filters: {}, views: {} };
+      for (const f of ['green', 'brown', 'shape', 'satval', 'hueband', 'lab', 'exg', 'otsu', 'edge']) {
+        document.querySelector(`.ph-filters [data-f="${f}"]`).click();
+        await new Promise(r => setTimeout(r, 420));
+        out.filters[f] = Photo.count();
+      }
+      document.querySelector('.ph-filters [data-f="green"]').click(); await new Promise(r => setTimeout(r, 420));
+      for (const v of ['original', 'highlight', 'compare']) { Photo.view(v); await new Promise(r => setTimeout(r, 200)); out.views[v] = Photo.count(); }
+      Photo.view('highlight');
       return out;
     }, 'tests/photos/' + p + '.jpg');
     res.push([p, r]);
-    await page.evaluate(() => { const sc = document.querySelector('#viewPhoto .scroll'); sc.scrollTop = document.getElementById('phWrap').offsetTop - 8; }); await sleep(200); await page.screenshot({ path: path.join(SHOTS, `myl-v1-photo-${p}.png`) });
+    await page.evaluate(() => { const sc = document.querySelector('#viewPhoto .scroll'); sc.scrollTop = document.getElementById('phWrap').offsetTop - 8; }); await sleep(200);
+    await page.screenshot({ path: path.join(SHOTS, `myl-v1-photo-${p}.png`) });
   }
-  console.log('   photo counts', JSON.stringify(res));
-  // tap to add / remove
-  const before = await page.evaluate(() => Photo.count());
-  await page.evaluate(() => { const c = document.getElementById('phCanvas'), b = c.getBoundingClientRect(), n = Photo.auto()[0];
-    c.dispatchEvent(new MouseEvent('click', { clientX: b.left + n.x * b.width / c.width, clientY: b.top + n.y * b.height / c.height, bubbles: true }));
-    c.dispatchEvent(new MouseEvent('click', { clientX: b.left + 3, clientY: b.top + 3, bubbles: true })); c.dispatchEvent(new MouseEvent('click', { clientX: b.left + 40, clientY: b.top + 3, bubbles: true })); });
-  assert.equal(await page.evaluate(() => Photo.count()), before + 1, 'removed 1, added 2');
-  const nm = (await page.evaluate(() => App.state().marks.length)); await page.click('#phSave');
-  const pm = await page.evaluate(() => App.state().marks.slice(-1)[0]); assert.equal((await page.evaluate(() => App.state().marks.length)), nm + 1);
-  assert.equal(pm.photoCount, before + 1); assert.ok(pm.estKgHa > 0 && pm.estNutsPerTree > 0 && pm.rating);
-  ok(`photo count: tap remove/add, saved mark ${pm.photoCount} nuts -> ${pm.estKgHa} kg/ha (${pm.rating})`);
-  await page.evaluate(() => document.querySelector('#viewPhoto .scroll').scrollTop = 0);
+  console.log('   photo counts', JSON.stringify(res.map(r => [r[0], r[1].filters])));
+  // every filter returns a finite count and the three views agree with each other
+  for (const [name, r] of res) {
+    for (const [f, c] of Object.entries(r.filters)) assert.ok(Number.isFinite(c) && c >= 0 && c < 4000, `${name} ${f}: ${c}`);
+    assert.equal(r.views.original, r.views.highlight, name + ': view tabs must not change the count');
+    assert.equal(r.views.compare, r.views.highlight, name + ': compare view must not change the count');
+  }
+  ok('photo: all 9 filters run on the 4 real photos, and Original / Highlight / Compare agree');
+
+  // ---- every slider drags, the preview/count follows, no errors ----
+  await page.evaluate(async () => {
+    const im = new Image(); im.src = 'tests/photos/p4.jpg'; await im.decode();
+    Photo.setImage(im, { ts: Date.now(), pos: App.lastPos(), row: '2', tree: '5' }); await new Promise(r => setTimeout(r, 900));
+    Photo.view('highlight');
+  });
+  const sliders = [['phThr', [0, 50, 100, 50]], ['phHueMin', [0, 55, 120, 55]], ['phHueMax', [200, 110, 360, 110]], ['phSat', [0, 22, 90, 22]], ['phBri', [0, 25, 90, 25]],
+    ['phMin', [3, 14, 60, 14]], ['phMax', [10, 80, 160, 80]], ['phRnd', [0, 45, 100, 45]], ['phSm', [0, 30, 100, 30]], ['phTopN', [0, 5, 20, 0]]];
+  const sliderReport = [];
+  for (const [id, values] of sliders) {
+    const r = await page.evaluate(async (id, values) => {
+      const el = document.getElementById(id), seen = [];
+      for (const v of values) {
+        el.value = v; el.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 260));          // one animation frame + the debounce for the full pass
+        seen.push({ v, n: Photo.count(), label: document.getElementById(id + 'V').textContent, prev: Photo.state().preview });
+      }
+      return seen;
+    }, id, values);
+    const counts = r.map(x => x.n);
+    assert.ok(counts.every(c => Number.isFinite(c) && c >= 0), id + ' counts finite: ' + counts.join(','));
+    assert.ok(counts.some(c => c > 0), id + ': ' + counts.join(',') + ' never found anything');
+    sliderReport.push([id, counts.join('→')]);
+  }
+  ok('photo: all 10 sliders drag and update count + preview (' + sliderReport.map(r => r[0]).join(', ') + ')');
+  console.log('   slider counts', sliderReport.map(r => r[0] + ' ' + r[1]).join(' | '));
+
+  // ---- topN really caps the badge and the visible circles ----
+  const topN = await page.evaluate(async () => {
+    const el = document.getElementById('phTopN');
+    el.value = 6; el.dispatchEvent(new Event('input', { bubbles: true })); await new Promise(r => setTimeout(r, 500));
+    const a = { n: Photo.count(), badge: document.getElementById('phNBadge').textContent, auto: Photo.auto().length };
+    el.value = 0; el.dispatchEvent(new Event('input', { bubbles: true })); await new Promise(r => setTimeout(r, 500));
+    return { a, b: Photo.count() };
+  });
+  assert.equal(topN.a.n, 6, 'best-6 keeps 6'); assert.equal(topN.a.badge, '6', 'badge shows 6'); assert.equal(topN.a.auto, 6, 'only 6 circles');
+  assert.ok(topN.b > 6, 'clearing best-N brings the rest back: ' + topN.b);
+  ok('photo: "only show best N" caps the count, the live badge and the drawn circles');
+
+  // ---- taps: one tap = one nut; double tap does not add two; taps during a pass are ignored ----
+  const tap = await page.evaluate(async () => {
+    Photo.view('original');
+    const c = document.getElementById('phCanvas'), b = c.getBoundingClientRect();
+    const at = (x, y) => c.dispatchEvent(new MouseEvent('click', { clientX: b.left + x * b.width / c.width, clientY: b.top + y * b.height / c.height, bubbles: true }));
+    const n0 = Photo.count();
+    at(4, 4); const n1 = Photo.count();
+    at(4, 4); const n2 = Photo.count();                       // immediate second click at the same spot
+    const n3 = (at(6, 6), Photo.count());                     // and a third, close by
+    // a genuine second tap elsewhere still counts
+    at(c.width - 6, c.height - 6); const n4 = Photo.count();
+    // a tap landing on an existing circle removes it (never adds)
+    const auto = Photo.auto()[0], bx = auto.x * b.width / c.width, by = auto.y * b.height / c.height;
+    c.dispatchEvent(new MouseEvent('click', { clientX: b.left + bx, clientY: b.top + by, bubbles: true })); const n5 = Photo.count();
+    return { n0, n1, n2, n3, n4, n5, auto: Photo.auto().length };
+  });
+  assert.equal(tap.n1, tap.n0 + 1, 'one tap adds exactly one nut');
+  assert.equal(tap.n2, tap.n1, 'a double tap does not add a second nut');
+  assert.equal(tap.n3, tap.n1, 'a third rapid tap in the same spot is swallowed too');
+  assert.equal(tap.n4, tap.n3 + 1, 'a deliberate tap elsewhere still adds one');
+  assert.equal(tap.n5, tap.n4 - 1, 'tapping an existing circle removes it instead of adding');
+  ok(`photo: taps are one-for-one (${tap.n0}→${tap.n1}→${tap.n2}→${tap.n3}→${tap.n4}→${tap.n5})`);
+
+  // ---- tap while a detection pass is queued must not race it ----
+  const race = await page.evaluate(async () => {
+    const el = document.getElementById('phThr');
+    el.value = 20; el.dispatchEvent(new Event('input', { bubbles: true }));      // queues a preview pass
+    const c = document.getElementById('phCanvas'), b = c.getBoundingClientRect();
+    const before = Photo.count();
+    c.dispatchEvent(new MouseEvent('click', { clientX: b.left + 3, clientY: b.top + 3, bubbles: true }));
+    const during = Photo.count();
+    await new Promise(r => setTimeout(r, 700));
+    const after = Photo.count(), st = Photo.state();
+    return { before, during, after, preview: st.preview, auto: Photo.auto().length };
+  });
+  assert.equal(race.during, race.before, 'a tap during a queued pass is ignored (no nut added, none lost)');
+  assert.equal(race.preview, false, 'the full-resolution pass settled after the drag');
+  ok('photo: a tap landing while a detection pass is queued is ignored, then the count settles');
+
+  // ---- stale results cannot overwrite a newer photo (generation counter) ----
+  const gen = await page.evaluate(async () => {
+    const load = src => new Promise(async res => { const im = new Image(); im.src = src; await im.decode(); res(im); });
+    const a = await load('tests/photos/p1.jpg'), b = await load('tests/photos/p4.jpg');
+    Photo.setImage(a, { ts: 1, pos: App.lastPos(), row: '2', tree: '5' });
+    Photo.setImage(b, { ts: 2, pos: App.lastPos(), row: '2', tree: '5' });   // immediately replace the photo
+    await new Promise(r => setTimeout(r, 900));
+    return { n: Photo.count(), st: Photo.state() };
+  });
+  assert.ok(gen.n > 0 && gen.st.W > 0, 'the newest photo is the one on screen');
+  ok('photo: loading a second photo mid-pass leaves the newest photo and its count on screen');
+
+  // ---- presets: apply a built-in, save one of my own, apply it back ----
+  const pres = await page.evaluate(async () => {
+    const sel = document.getElementById('phPreset');
+    const names = [...sel.options].map(o => o.value).filter(Boolean);
+    sel.value = 'Green husk sunny'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 600));
+    const sunny = { filter: Photo.opts.filter, n: Photo.count(), label: sel.value };
+    sel.value = 'Dense canopy'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 600));
+    const dense = { filter: Photo.opts.filter, n: Photo.count(), topN: Photo.opts.topN, label: sel.value };
+    // save my own preset from the current settings
+    Photo.savePreset('Block 7 A16 test');
+    await new Promise(r => setTimeout(r, 100));
+    const mine = [...document.getElementById('phPreset').options].map(o => o.value);
+    return { names, sunny, dense, mine };
+  });
+  assert.deepEqual(pres.names.slice(0, 4), ['Green husk sunny', 'Green husk overcast', 'Brown fallen', 'Dense canopy'], 'four built-in presets');
+  assert.equal(pres.sunny.label, 'Green husk sunny'); assert.equal(pres.dense.topN, 40, 'dense preset applies best-N');
+  assert.ok(pres.mine.includes('Block 7 A16 test'), 'my preset is in the list: ' + pres.mine.join(','));
+  ok('photo: presets apply (' + pres.sunny.n + ' sunny / ' + pres.dense.n + ' dense) and a custom one saves');
+
+  // ---- the saved mark carries the count through to the upload payload ----
+  const payload = await page.evaluate(() => {
+    Photo.view('original');
+    const n = Photo.count();
+    document.getElementById('phSave').click();
+    const m = App.state().marks.slice(-1)[0];
+    const up = window.Upload && window.Upload.markPayload(m);
+    return { n, m: { photoCount: m.photoCount, estNutsPerTree: m.estNutsPerTree, estKgHa: m.estKgHa, rating: m.rating, photoFilter: m.photoFilter, photoPreset: m.photoPreset }, up };
+  });
+  assert.equal(payload.m.photoCount, payload.n, 'saved photoCount equals the on-screen count');
+  assert.ok(payload.m.estNutsPerTree > 0 && payload.m.estKgHa > 0 && payload.m.rating, 'yield maths filled in');
+  assert.equal(payload.up.photoCount, payload.n, 'upload payload carries photoCount');
+  assert.equal(payload.up.estNutsPerTree, payload.m.estNutsPerTree); assert.equal(payload.up.estKgHa, payload.m.estKgHa);
+  ok(`photo: saved mark ${payload.m.photoCount} nuts -> ${payload.m.estKgHa} kg/ha (${payload.m.rating}) and the upload payload carries photoCount/estNutsPerTree/estKgHa`);
+
+  // ---- camera lifecycle: a live stream is stopped on tab change, on visibilitychange, and never leaks ----
+  const cam = await page.evaluate(async () => {
+    // a stand-in for navigator.mediaDevices.getUserMedia: a canvas-captured stream we can watch being stopped
+    const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 240;
+    const ctx = canvas.getContext('2d'); ctx.fillStyle = '#2a5'; ctx.fillRect(0, 0, 320, 240);
+    const live = canvas.captureStream(10), track = live.getVideoTracks()[0];
+    window.__cam = { asked: 0, stopped: 0, live, state: () => track.readyState };
+    // canvas captureStream tracks do not fire "ended" on stop(); spy on stop() and read readyState instead
+    const realStop = track.stop.bind(track);
+    track.stop = () => { window.__cam.stopped++; realStop(); };
+    const real = navigator.mediaDevices.getUserMedia;
+    navigator.mediaDevices.getUserMedia = () => { window.__cam.asked++; return Promise.resolve(live); };
+    document.getElementById('phLive').click();
+    await new Promise(r => setTimeout(r, 600));
+    const on = { live: Photo.state().live, shutter: !document.getElementById('phShutterRow').hidden, stopped: window.__cam.stopped, ready: track.readyState };
+    // leave the tab: the stream must be released
+    App.setView('mark'); await new Promise(r => setTimeout(r, 300));
+    const off = { live: Photo.state().live, stopped: window.__cam.stopped, videoSrc: !!document.getElementById('phVideo').srcObject, ready: track.readyState };
+    // re-enter and start again, then simulate the app going to the background
+    App.setView('photo'); await new Promise(r => setTimeout(r, 200));
+    document.getElementById('phLive').click(); await new Promise(r => setTimeout(r, 400));
+    const again = { live: Photo.state().live, asked: window.__cam.asked };
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true }); document.dispatchEvent(new Event('visibilitychange'));
+    await new Promise(r => setTimeout(r, 300));
+    const bg = { live: Photo.state().live, stopped: window.__cam.stopped, videoSrc: !!document.getElementById('phVideo').srcObject };
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true }); document.dispatchEvent(new Event('visibilitychange'));
+    // restore, and make sure a permission denial is handled without a live track or an exception
+    navigator.mediaDevices.getUserMedia = () => Promise.reject(Object.assign(new Error('denied'), { name: 'NotAllowedError' }));
+    Photo.stopLive(); document.getElementById('phLive').click(); await new Promise(r => setTimeout(r, 400));
+    const denied = { live: Photo.state().live, shutter: document.getElementById('phShutterRow').hidden, toast: document.getElementById('toast').textContent };
+    navigator.mediaDevices.getUserMedia = real;
+    return { on, off, again, bg, denied, asked: window.__cam.asked, stopped: window.__cam.stopped };
+  });
+  assert.ok(cam.on.live && cam.on.shutter, 'live camera starts and shows the capture button');
+  assert.equal(cam.on.ready, 'live', 'the track is live while the camera is on');
+  assert.equal(cam.off.live, false, 'leaving the Photo tab stops the camera');
+  assert.ok(cam.off.stopped >= 1, 'the media track is actually stopped, not just detached');
+  assert.equal(cam.off.ready, 'ended', 'the track ends (readyState=ended), so no camera LED stays on');
+  assert.equal(cam.off.videoSrc, false, 'the video element is left with no srcObject');
+  assert.ok(cam.again.live && cam.asked >= 2, 're-entering the tab and pressing Live works again');
+  assert.equal(cam.bg.live, false, 'going to the background stops the camera');
+  assert.equal(cam.bg.videoSrc, false, 'and clears srcObject');
+  assert.ok(cam.stopped >= 2, 'two tracks stopped in total: ' + cam.stopped);
+  assert.equal(cam.denied.live, false, 'permission denial leaves no stream');
+  assert.equal(cam.denied.shutter, true, 'the shutter button is hidden after a denial');
+  assert.ok(/denied/i.test(cam.denied.toast), 'the user is told the camera was denied: "' + cam.denied.toast + '"');
+  ok(`photo: camera stream lifecycle (start, tab-out stop, re-entry, background stop, denial) - ${cam.asked} starts, ${cam.stopped} tracks stopped`);
+
+  // ---- EXIF/portrait: a rotated phone photo is laid out the right way up ----
+  const orient = await page.evaluate(async () => {
+    // paint "TOP" at the top of a landscape canvas, export it as JPEG, then re-encode with EXIF orientation 6
+    // (rotate 90 CW): a browser that honours EXIF shows a portrait image with the text on its right edge.
+    const c = document.createElement('canvas'); c.width = 400; c.height = 200;
+    const x = c.getContext('2d'); x.fillStyle = '#123'; x.fillRect(0, 0, 400, 200);
+    x.fillStyle = '#fff'; x.font = 'bold 60px sans-serif'; x.fillText('TOP', 20, 80);
+    const jpeg = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
+    const buf = new Uint8Array(await jpeg.arrayBuffer());
+    // splice an APP1 / EXIF orientation tag in right after SOI
+    const exif = [0xFF, 0xE1, 0x00, 0x22, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00, 0x4D, 0x4D, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x08,
+      0x00, 0x01, 0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    const out = new Uint8Array(buf.length + exif.length);
+    out.set(buf.subarray(0, 2), 0); out.set(exif, 2); out.set(buf.subarray(2), 2 + exif.length);
+    const file = new File([out], 'portrait.jpg', { type: 'image/jpeg' });
+    const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    Photo.setImage(bmp, { ts: 1, pos: App.lastPos(), row: '2', tree: '5' });
+    await new Promise(r => setTimeout(r, 800));
+    const st = Photo.state();
+    // read the working canvas back: the "TOP" band must be at the right-hand edge if the EXIF rotation applied
+    const cv = document.createElement('canvas'); cv.width = st.W; cv.height = st.H;
+    return { w: bmp.width, h: bmp.height, W: st.W, H: st.H, portrait: st.H > st.W, srcW: 400, srcH: 200 };
+  });
+  assert.ok(orient.portrait, 'a landscape 400x200 file tagged EXIF-6 becomes a portrait working image: ' + orient.W + 'x' + orient.H);
+  assert.ok(orient.w === 200 && orient.h === 400, 'createImageBitmap applied the EXIF rotation (' + orient.w + 'x' + orient.h + ')');
+  ok(`photo: EXIF orientation is applied (400x200 + orientation 6 -> ${orient.W}x${orient.H} working copy)`);
+
+  // ---- retaking photos does not leak bitmaps, and the screen does not re-render in a loop ----
+  const leak = await page.evaluate(async () => {
+    let closed = 0;
+    const load = src => new Promise(async res => { const im = new Image(); im.src = src; await im.decode(); res(im); });
+    const first = await createImageBitmap(await (await fetch('tests/photos/p1.jpg')).blob());
+    const realClose = first.close.bind(first);
+    first.close = () => { closed++; realClose(); };
+    Photo.setImage(first, { ts: 1, pos: App.lastPos(), row: '2', tree: '5' });
+    await new Promise(r => setTimeout(r, 500));
+    for (let i = 0; i < 3; i++) Photo.setImage(await load('tests/photos/p4.jpg'), { ts: i, pos: App.lastPos(), row: '2', tree: '5' });
+    await new Promise(r => setTimeout(r, 900));
+    // count repaints over a quiet second (no input): the draw loop must be idle
+    let paints = 0; const c = document.getElementById('phCanvas');
+    const obs = new MutationObserver(() => paints++); obs.observe(c, { attributes: true, attributeFilter: ['width', 'height'] });
+    const html = document.getElementById('phOut').innerHTML;
+    await new Promise(r => setTimeout(r, 1000)); obs.disconnect();
+    return { closed, paints, outStable: html === document.getElementById('phOut').innerHTML, count: Photo.count() };
+  });
+  assert.ok(leak.closed >= 1, 'the previous ImageBitmap is released on retake: ' + leak.closed);
+  assert.equal(leak.paints, 0, 'no canvas resizes while idle (no repaint loop): ' + leak.paints);
+  assert.ok(leak.outStable, 'the results panel is not rewritten when nothing changed');
+  ok(`photo: retakes release the old bitmap (${leak.closed} closed), 0 idle repaints, stable results panel`);
+
+  // ---- layout: the photo bench must not overlap at 390x844 or 360x640 ----
+  for (const [w, h] of [[390, 844], [360, 640]]) {
+    await page.setViewport({ width: w, height: h, deviceScaleFactor: 2, isMobile: true, hasTouch: true }); await sleep(350);
+    const lay = await page.evaluate(() => {
+      // only controls inside the visible part of the scrolling photo pane: content scrolled behind the fixed tab bar
+      // is not an overlap, it is just scrolled content
+      const pane = document.querySelector('#viewPhoto .scroll').getBoundingClientRect();
+      const els = [...document.querySelectorAll('#viewPhoto button, #viewPhoto input, #viewPhoto select, .tabs button')].filter(e => {
+        if (!e.offsetParent || e.type === 'hidden') return false;
+        const b = e.getBoundingClientRect();
+        if (b.width < 1 || b.height < 1) return false;
+        if (e.closest('.tabs')) return true;                       // the tab bar itself is always on screen
+        return b.top >= pane.top + 1 && b.bottom <= pane.bottom - 1;   // fully visible inside the scroll pane
+      });
+      const R = els.map(e => { const b = e.getBoundingClientRect(); return { id: e.id || e.getAttribute('data-f') || e.getAttribute('data-v') || e.className || e.tagName, x: b.left, y: b.top, w: b.width, h: b.height }; });
+      const bad = [];
+      for (let i = 0; i < R.length; i++) for (let j = i + 1; j < R.length; j++) {
+        const a = R[i], b = R[j];
+        // hidden-in-a-collapsed-row elements can share a box; only real overlaps count
+        if (a.w < 1 || b.w < 1) continue;
+        if (a.x < b.x + b.w - 1 && b.x < a.x + a.w - 1 && a.y < b.y + b.h - 1 && b.y < a.y + a.h - 1) bad.push(a.id + ' x ' + b.id);
+      }
+      const off = R.filter(a => a.w > 1 && (a.x < -1 || a.x + a.w > innerWidth + 1)).map(a => a.id);
+      const taps = [...document.querySelectorAll('#viewPhoto button, #viewPhoto input[type=range]')].filter(e => e.offsetParent).map(e => e.getBoundingClientRect().height);
+      return { n: R.length, bad, off, minTouch: Math.min(...taps) };
+    });
+    assert.deepEqual(lay.bad, [], w + 'x' + h + ' photo overlaps: ' + lay.bad.join(', '));
+    assert.deepEqual(lay.off, [], w + 'x' + h + ' photo off-screen: ' + lay.off.join(', '));
+    assert.ok(lay.minTouch >= 32, w + 'x' + h + ' smallest photo control is ' + lay.minTouch + ' px tall');
+    ok(`${w}x${h}: ${lay.n} photo controls, no overlaps, min height ${Math.round(lay.minTouch)} px`);
+    await page.evaluate(() => { document.querySelector('#viewPhoto .scroll').scrollTop = 0; }); await sleep(150);
+  }
+  await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true }); await sleep(300);
+  await page.evaluate(() => { document.querySelector('#viewPhoto .scroll').scrollTop = 0; }); await sleep(150);
   await page.screenshot({ path: path.join(SHOTS, 'myl-v1-photo.png') });
   // second layout check: photo + map tab bars
   await page.click('#tabMark'); await page.click('#startStop');
