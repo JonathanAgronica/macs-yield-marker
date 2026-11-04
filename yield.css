@@ -119,3 +119,26 @@ header .help-fab{width:38px;height:38px}
 .tr-box b{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums}.tr-box .rt-lbl{margin-right:3px}
 .tree-up{padding:0 12px;font-size:15px}
 .scroll>*{flex-shrink:0}
+/* small / older phones (iPhone SE etc.): keep the rating buttons big by trimming chrome */
+@media (max-height:720px){
+  .adbar{display:none}
+  header{padding:6px 10px}
+  header .logo{width:32px;height:32px}
+  .title span{font-size:12px}.hlogo{height:22px}
+  #sessCard{padding:5px 8px}
+  .fld input,.fld select,#varOther{height:32px;font-size:14px}
+  #controls{margin-top:6px}
+  #startStop,#controls .sq{min-height:42px;height:42px;font-size:15px}
+  #controls .sq{width:44px}
+  .rt-row{margin-top:6px;gap:5px}
+  .stp,.tree-up,.auto{height:40px}
+  .stp{width:44px;font-size:24px}.row-val{font-size:22px}
+  #msg{min-height:14px;margin:2px 4px 0}
+  #rateBtns{gap:5px;padding:2px 10px 4px}
+  .rate{border-radius:16px;padding:0 16px}
+  .rate span{font-size:min(7vw,4.6vh)}
+  #rateBtns2 .rate2{min-height:38px;font-size:14px}
+  .tabs{padding:5px 10px max(5px,env(safe-area-inset-bottom))}
+  .tabs button{padding:5px 0;font-size:10px}
+  .tabs .ic{width:22px;height:22px}
+}

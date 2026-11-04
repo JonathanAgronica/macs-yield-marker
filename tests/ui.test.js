@@ -45,6 +45,20 @@ let passed = 0; const ok = (name) => { passed++; console.log('ok -', name); };
   assert.deepEqual(lay.bad, [], 'overlaps: ' + lay.bad.join(', ')); assert.deepEqual(lay.off, [], 'off-screen: ' + lay.off);
   assert.equal(lay.rate.length, 5); lay.rate.forEach(b => { assert.ok(b.h >= 60, 'rating button height ' + b.h); assert.ok(b.w >= 350); });
   ok(`no overlaps among ${lay.n} controls at 390x844; rating buttons ${Math.round(lay.rate[0].w)}x${Math.round(lay.rate[0].h)} px`);
+  // smaller phones: layout must not overlap and rating buttons stay thumb-sized
+  for (const [w, h] of [[360, 640], [375, 667], [412, 915]]) {
+    await page.setViewport({ width: w, height: h, deviceScaleFactor: 2, isMobile: true, hasTouch: true }); await sleep(300);
+    const r = await page.evaluate(() => {
+      const els = [...document.querySelectorAll('#viewMark button, #viewMark input, #viewMark select, .tabs button')].filter(e => e.offsetParent);
+      const R = els.map(e => { const b = e.getBoundingClientRect(); return { id: e.id || e.className, x: b.left, y: b.top, w: b.width, h: b.height }; });
+      const bad = [];
+      for (let i = 0; i < R.length; i++) for (let j = i + 1; j < R.length; j++) { const a = R[i], b = R[j]; if (a.x < b.x + b.w - 1 && b.x < a.x + a.w - 1 && a.y < b.y + b.h - 1 && b.y < a.y + a.h - 1) bad.push(a.id + ' x ' + b.id); }
+      return { bad, rate: [...document.querySelectorAll('#rateBtns .rate')].map(e => Math.round(e.getBoundingClientRect().height)) };
+    });
+    assert.deepEqual(r.bad, [], w + 'x' + h + ' overlaps: ' + r.bad.join(', ')); assert.ok(Math.min(...r.rate) >= 48, w + 'x' + h + ' rating buttons too small: ' + r.rate);
+    ok(`${w}x${h}: no overlaps, rating buttons ${r.rate[0]} px tall`);
+  }
+  await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true }); await sleep(300);
 
   // ---- session + one-tap rating ----
   await page.type('#block', 'Block 7'); await page.select('#variety', 'A16');
