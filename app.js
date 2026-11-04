@@ -158,7 +158,7 @@
     var p = here();
     estOpen = { from: from, to: to, row: state.row, pos: p ? { lat: p.lat, lon: p.lon, acc: p.acc } : null };
     $('estTitle').textContent = 'Trees ' + from + '-' + to; $('estSub').textContent = 'Row ' + state.row + ' - tap the yield estimate (1-5)';
-    $('est').classList.remove('hidden');
+    $('est').classList.remove('hidden'); document.body.classList.add('est-open');
     var bar = $('estTimer').querySelector('i'); bar.style.transition = 'none'; bar.style.width = '100%';
     requestAnimationFrame(function () { requestAnimationFrame(function () { bar.style.transition = 'width ' + ESTMS + 'ms linear'; bar.style.width = '0%'; }); });
     beep(880, 140, 2); vib([120, 60, 120]);
@@ -166,7 +166,7 @@
   }
   function closeEst(skipped, value) {
     if (!estOpen) return;
-    var e = estOpen; estOpen = null; clearTimeout(estT); $('est').classList.add('hidden');
+    var e = estOpen; estOpen = null; clearTimeout(estT); $('est').classList.add('hidden'); document.body.classList.remove('est-open');
     var f = { treeFrom: e.from, treeTo: e.to, row: String(e.row), tree: String(e.to) };
     if (skipped) { f.interpolated = true; f.rating = ''; }
     else { f.estimate = value; f.rating = Y.RATINGS[value - 1].id; }

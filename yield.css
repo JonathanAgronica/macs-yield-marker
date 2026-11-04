@@ -39,7 +39,8 @@
 .rate2{flex:1;min-height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:800;font-size:15px;background:var(--card2);border:1px solid var(--line)}
 #flash{z-index:50;font-weight:900;color:#fff;text-shadow:0 3px 0 #0006}
 /* estimate prompt (non-blocking overlay; GPS keeps running) */
-#est{position:fixed;inset:0;z-index:45;background:#000c;display:flex;align-items:stretch}
+#est{position:fixed;inset:0;z-index:45;background:#0b0b0bf2;display:flex;align-items:stretch}
+body.est-open .tabs,body.est-open .adbar{visibility:hidden}
 .est-panel{flex:1;display:flex;flex-direction:column;gap:10px;padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))}
 .est-head{display:flex;align-items:center;gap:10px}
 .est-head div{flex:1;display:flex;flex-direction:column}
