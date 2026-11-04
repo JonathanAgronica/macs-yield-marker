@@ -90,6 +90,9 @@ Bin weights also go to `POST /api/yield/bins` (derived from `INGEST_URL`, or `BI
 `ymap.js` (Leaflet map + IDW heat layer), `app.js` (session, GPS, rows/trees, prompts, pad, export/import), `photocount.js`
 (nut detector + yield maths), `photo.js` (Photo tab), `upload.js`, `config.js`, `extras.js` (About, Macca, ads), `sw.js`, `manifest.json`, `ads.json`.
 
+`tools/build-icons.py` rebuilds `icons/` from the CC0 photo (`tools/macadamia-nut-912598.jpg`) and the Agronica mark
+(`tools/mark.png`), the same treatment as the mistletoe app's icon; `tools/icon-preview.png` shows the result.
+
 ## Tests
 
 ```

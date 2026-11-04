@@ -1,11 +1,14 @@
 from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
 import base64, io
-src=Image.open('Macadamia-nut-912598.jpg').convert('RGB')
-cx0,cy0,cs=int(__import__('os').environ.get('CX','250')),int(__import__('os').environ.get('CY','1250')),1700
+# Rebuilds icons/ from the CC0 photo (tools/macadamia-nut-912598.jpg, 1600x1200 crop of the 4000x3000 original)
+# plus the Agronica 'a' mark alpha (tools/mark.png). Crop region is proportional to the 4000x3000 original.
+import os
+src=Image.open(os.path.join(os.path.dirname(__file__),'macadamia-nut-912598.jpg')).convert('RGB')
+S0=src.width; cx0,cy0,cs=int(S0*0.0625),int(S0*0.4167),int(S0*0.425)
 crop=src.crop((cx0,cy0,cx0+cs,cy0+cs))
 crop=ImageEnhance.Contrast(crop).enhance(1.08); crop=ImageEnhance.Color(crop).enhance(1.12); crop=ImageEnhance.Brightness(crop).enhance(0.82)
 S=2048
-mk_a=Image.open('mark.png').getchannel('A')
+mk_a=Image.open(os.path.join(os.path.dirname(__file__),'mark.png')).getchannel('A')
 OP=float(__import__('os').environ.get('OP','0.5'))
 def grad(size):
     # orange #ffb400 radial-ish gradient
@@ -43,8 +46,8 @@ def make(maskable, out=S):
     canvas=Image.alpha_composite(canvas,lay)
     return canvas
 anyi=make(False); mk=make(True)
-anyi.save('any2048.png'); mk.save('mask2048.png')
-I='/workspace/macs-yield-marker/icons/'
+anyi.save(os.path.join(os.path.dirname(__file__),'any2048.png')); mk.save(os.path.join(os.path.dirname(__file__),'mask2048.png'))
+I=os.path.join(os.path.dirname(__file__),'..','icons')+os.sep
 for n,im,sz in [('logo.png',anyi,512),('icon-512.png',anyi,512),('icon-192.png',anyi,192),('icon-180.png',anyi,180),('favicon-32.png',anyi,32),
                 ('maskable-512.png',mk,512),('maskable-192.png',mk,192)]:
     im.resize((sz,sz),Image.LANCZOS).save(I+n,optimize=True)
@@ -61,4 +64,4 @@ P.paste(mk.resize((300,300)),(620,40),cm)
 P.paste(mk.resize((300,300)),(950,40),rrect_mask(300,66))
 for k,sz in enumerate([180,96,48,32]):
     t=anyi.resize((sz,sz),Image.LANCZOS); P.paste(t,(620+k*200,380),t)
-P.save('/workspace/myl-icon-preview.png')
+P.save(os.path.join(os.path.dirname(__file__),'icon-preview.png'))
