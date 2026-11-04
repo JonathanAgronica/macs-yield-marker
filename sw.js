@@ -1,4 +1,4 @@
-const CACHE = 'macs-yield-marker-v1';
+const CACHE = 'macs-yield-marker-v2';
 const VIEWED = 'myl-tiles-viewed'; // satellite tiles seen while browsing maps (runtime cache, capped, kept across versions)
 const SAVED = 'myl-tiles-saved';   // tiles pre-cached with "Save map area for offline" (written by the page, kept across versions)
 const VIEWED_MAX = 2000, SAVED_MAX = 4000;

@@ -129,7 +129,14 @@
     refill(); save(); queue(m); render();
     return m;
   }
-  function queue(m) { if (window.Upload) { var s = state.sessions[m.session] || { id: m.session, block: m.block, variety: m.variety }; window.__ymExtra = { farm: state.settings.farm }; window.Upload.enqueue(m, s); } }
+  function queue(m) {
+    if (!window.Upload) return;
+    var s = state.sessions[m.session] || { id: m.session, block: m.block, variety: m.variety };
+    // farm + this session's GPS track travel with the upload (track points only, the server keeps its own copy)
+    var tr = state.track.filter(function (p) { return p.ts >= (s.start || 0) && (!s.end || p.ts <= s.end); });
+    window.__ymExtra = { farm: state.settings.farm, contact: state.settings.contact, track: { sid: s.id, points: tr } };
+    window.Upload.enqueue(m, s);
+  }
   function refill() {
     var before = {}; state.marks.forEach(function (m) { if (m.interpolated) before[m.id] = m.rating; });
     Y.fillInterpolated(state.marks);
@@ -253,8 +260,7 @@
       row('Nut counts', s.counts ? s.counts + ' (total ' + s.totalCount + ', avg ' + s.avgCount + ')' : '-') +
       row('Bins / bags weighed', s.weighed || '-') + row('Total weight', s.weighed ? s.totalKg + ' kg' : '-') + row('Average weight', s.avgKg != null ? s.avgKg + ' kg' : '-') +
       '</div>';
-    var u = window.Upload && window.Upload.status();
-    if (u) h += '<div class="dim small-txt">AgronicaWorld upload: ' + (u.enabled ? (u.pending ? u.pending + ' waiting' : 'all sent') + (u.lastErr ? ' · last error ' + u.lastErr : '') : 'off (not configured yet)') + '</div>';
+    if (window.Upload) h += upLine();
     $('sumBody').innerHTML = h;
     var list = $('list'), ms = d.marks.slice().reverse();
     $('listCount').textContent = d.marks.length;
@@ -266,6 +272,9 @@
     }).join('') + (ms.length > 300 ? '<li class="more dim">+' + (ms.length - 300) + ' older marks (export to see all)</li>' : '');
   }
   function row(a, b) { return '<div class="sr"><span>' + a + '</span><b>' + b + '</b></div>'; }
+  // upload / sync status: queue count, last response's matched block counts and how many marks fell outside a block
+  function upLine() { return '<div id="sumUp" class="dim small-txt up-line">' + esc(window.Upload.statusText()) + '</div>'; }
+  function upMenu() { var u = window.Upload && window.Upload.status(); if (!u) return; $('upStatus').textContent = window.Upload.statusText() + ' · Device ID ' + u.deviceId; }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
   // ---------- views ----------
@@ -361,8 +370,7 @@
   $('importFile').onchange = function () { var f = this.files[0]; if (!f) return; f.text().then(function (t) { importText(t, f.name); }); this.value = ''; $('sheet').classList.add('hidden'); };
   // menu + settings
   $('menuBtn').onclick = function () { $('setSpacing').value = spacing(); $('setEvery').value = every(); $('setFarm').value = state.settings.farm || ''; $('setSound').checked = !!state.settings.sound;
-    var u = window.Upload && window.Upload.status(); $('upStatus').textContent = u ? (u.enabled ? 'AgronicaWorld upload ON · ' + u.pending + ' waiting' : 'AgronicaWorld upload is off until Agronica sets the server address and key.') + ' Device ID ' + u.deviceId.slice(0, 8) : '';
-    $('sheet').classList.remove('hidden'); };
+    upMenu(); $('sheet').classList.remove('hidden'); };
   $('closeSheet').onclick = function () { $('sheet').classList.add('hidden'); };
   $('mSum').onclick = function () { $('sheet').classList.add('hidden'); setView('sum'); };
   $('setSpacing').onchange = function () { var v = +this.value; if (v > 0) { state.settings.spacing[state.block || '_'] = v; save(); renderTrees(); } };
@@ -375,6 +383,11 @@
     importText: importText, exportKml: exportKml, exportCsv: exportCsv, lastPos: function () { return lastPos; }, spacing: spacing, toast: toast, beep: beep, vib: vib, map: function () { return mapView; },
     running: function () { return running; }, save: save, render: render, refill: refill };
 
+  // the upload queue announces a finished flush so the status area is live
+  window.addEventListener('ym-upload-status', function () {
+    if (view === 'sum') { var e = $('sumUp'); if (e) e.textContent = window.Upload.statusText(); }
+    if (!$('sheet').classList.contains('hidden')) upMenu();
+  });
   if (!window.isSecureContext && location.hostname !== 'localhost') msg('GPS requires HTTPS – open the https:// address', 10000);
   syncToggles(); render();
   if ('serviceWorker' in navigator) {

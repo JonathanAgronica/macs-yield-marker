@@ -27,6 +27,13 @@ let passed = 0; const ok = (name) => { passed++; console.log('ok -', name); };
   await page.evaluateOnNewDocument((u) => { try { localStorage.setItem('myl-tile-url', u); } catch (e) {} window.__vib = []; navigator.vibrate = p => { window.__vib.push(p); return true; };
     Object.defineProperty(navigator, 'canShare', { value: undefined, configurable: true }); }, tiles.imagery);
   await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  // config.js is stubbed with upload DISABLED: this test must never post marks to the live AgronicaWorld ingest
+  await page.setRequestInterception(true);
+  page.on('request', r => {
+    if (/\/config\.js(\?|$)/.test(r.url())) return r.respond({ status: 200, contentType: 'application/javascript',
+      body: "window.YM_CONFIG={INGEST_URL:'',INGEST_KEY:'',INGEST_URL_PLACEHOLDER:'',AI_COUNT_URL:'',FARM:'',APP_VERSION:'v2'};" });
+    r.continue();
+  });
   const cdp = await page.createCDPSession();
   await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: DL });
   await page.setGeolocation(north(0));
@@ -167,9 +174,10 @@ let passed = 0; const ok = (name) => { passed++; console.log('ok -', name); };
   const r3 = await page.evaluate(c => App.importText(c, 'mine.csv'), csv); assert.equal(r3.added.length, 0);
   ok('import/merge: own KML all duplicates, colleague KML +1 new / 1 dup, CSV import de-duplicated');
 
-  // ---- upload queue stays disabled ----
+  // ---- upload queue with no URL/key: queued, nothing sent, status says so ----
   const up = await page.evaluate(() => Upload.status()); assert.equal(up.enabled, false); assert.ok(up.pending > 0); assert.match(up.deviceId, /^[0-9a-f-]{36}$/);
-  ok(`upload disabled until configured (${up.pending} queued for later, device ${up.deviceId.slice(0, 8)})`);
+  const upTxt = await page.$eval('#sumUp', e => e.textContent); assert.ok(/upload is off/i.test(upTxt), upTxt);
+  ok(`upload off without a key (${up.pending} queued for later, device ${up.deviceId.slice(0, 8)}): "${upTxt}"`);
 
   // ---- About + Macca ----
   await page.click('#tabMark'); await page.click('#aboutLink'); await sleep(800);

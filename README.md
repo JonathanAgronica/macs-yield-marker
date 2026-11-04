@@ -7,7 +7,7 @@ Agronica Pty Ltd (Bundaberg / Alloway QLD).
 
 Built for **driving down the rows**: huge one-tap rating buttons with beep / vibration / colour-flash confirmation,
 a GPS tree counter that prompts for a 1-5 estimate every 10 trees, and a heat map of each block. Data is exported as
-KML / CSV now and will upload to AgronicaWorld for block heat mapping once the server key is issued.
+KML / CSV, and uploads to AgronicaWorld for block heat mapping (queued offline, with matched/unmatched feedback).
 
 ## Features
 
@@ -51,38 +51,53 @@ weight_kg, heading, interpolated, photo_count, est_nuts_per_tree, est_kg_ha, ses
 ## AgronicaWorld upload payload
 
 `upload.js` keeps a localStorage queue (survives offline/reloads), retries with exponential backoff (30 s doubling to
-30 min), and uses a random UUID `deviceId`. **Disabled until both `INGEST_URL` and `INGEST_KEY` are set in `config.js`**
-(placeholder: `https://170-64-148-102.sslip.io/api/yield/submit`).
+30 min, honouring `Retry-After`), and uses a random UUID `deviceId`. Upload is switched on by setting `INGEST_URL` and
+`INGEST_KEY` in `config.js` (live: `https://170-64-148-102.sslip.io/api/yield/submit`).
 
-`POST {INGEST_URL}` with header `X-Ingest-Key: <key>`, `Content-Type: application/json`:
+`POST {INGEST_URL}` with header `X-Ingest-Key: <key>`, `Content-Type: application/json`. The body is **flat** - one
+session per request, no nested `session` object:
 
 ```json
 {
-  "session": {
-    "deviceId": "6f1c...-uuid", "appVersion": "v1", "sessionId": "s lzx3k2", "submittedAt": "2026-11-04T00:30:00.000Z",
-    "farm": "optional", "block": "optional", "variety": "optional", "contact": "optional"
-  },
+  "deviceId": "6f1c...-uuid", "appVersion": "v2", "sessionId": "s-lzx3k2", "submittedAt": "2026-11-04T00:30:00.000Z",
+  "farm": "optional", "block": "optional", "variety": "optional", "contact": { "name": "optional", "email": "optional" },
   "marks": [
     { "id": "y...", "t": "2026-11-04T00:12:03.000Z", "lat": -24.98, "lon": 152.38, "acc": 3.2, "row": "12",
       "rating": 4, "binWeightKg": 412.5, "heading": 91,
-      "treeFrom": 11, "treeTo": 20, "estimate": 4, "interpolated": true, "tree": "15", "count": 120,
+      "treeFrom": 11, "treeTo": 20, "estimate": 4, "interpolated": true,
       "photoCount": 37, "estNutsPerTree": 370, "estKgHa": 868 }
-  ]
+  ],
+  "track": [ { "lat": -24.98, "lon": 152.38, "t": "2026-11-04T00:12:00.000Z" } ]
 }
 ```
 
+- `sessionId` is sanitised to `[A-Za-z0-9._:-]`, max 64 chars (`s lzx3k2` -> `s-lzx3k2`). `appVersion` max 32.
 - `t` is ISO 8601 UTC. `rating` is an integer 1-5 (1 Nil, 2 Low, 3 Medium, 4 High, 5 Very high). A 10-tree estimate is
   itself 1-5, so `rating = estimate`; interpolated values are rounded to the nearest rating and `estimate` keeps the decimal.
-- Required: `id, t, lat, lon, rating`. Optional: `acc, row (string), binWeightKg, heading`.
-- **Extra fields** the server should accept (or ignore): `treeFrom, treeTo, estimate, interpolated, tree, count, photoCount, estNutsPerTree, estKgHa`.
-- Marks are re-sent with the same `id` when edited or when an interpolated value is filled in, so the server should **upsert by `id`**.
+- Required: `id, t, lat, lon, rating`. Optional: `acc, row (string), binWeightKg, heading, treeFrom, treeTo, estimate,
+  interpolated, photoCount, estNutsPerTree, estKgHa`, plus the session `track` (lat/lon/t, max 20 000 points; sent once
+  per new stretch of GPS track and downsample-capped).
+- The app's internal `tree` and `count` fields are **not** sent (the server does not list them); they stay on the phone
+  and in the KML / CSV export.
+- Marks are re-sent with the same `id` when edited or when an interpolated value is filled in, so the server **upserts
+  by `id`**. A no-op resend answers `received: 0`, which counts as success.
 - Marks with no rating (count/weight only, or interpolated with no neighbours yet) stay in the app and in CSV/KML but are
   not sent as rating marks; they upload separately as bin weights (`/api/yield/bins`) and are re-queued if you later give
   them a rating. If you want a rating for a count-only mark, edit it and pick one.
-- Up to 500 marks per request, one request per session. Expected response: `{ ok, received, matched: { block: count }, unmatched }`.
+- Batches respect the server caps: **5000 marks and 1 MB per request** (`upload.js` splits larger queues, keeping the
+  JSON body under ~950 kB). Up to 20 bins per flush (server: 300 bins/hour per device).
+- Response: `{ ok, received, matched: {"<block>": count}, unmatched: k }`. The Summary tab and the Menu sheet show the
+  last response: received count, matched block counts and how many marks fell outside a block (`unmatched`).
+- Errors: 400 names the offending field (shown in the status line, queue kept), 401 = wrong `X-Ingest-Key`, 429 and 5xx
+  back off (honouring `Retry-After`) without dropping anything. Rate limits: 120 requests / 10 min per IP, 60 submits /
+  hour per device.
 
-Bin weights also go to `POST /api/yield/bins` (derived from `INGEST_URL`, or `BINS_URL`):
-`{ deviceId, sessionId?, block?, binId?, weightKg, t, lat?, lon? }`.
+Bin weights go to `POST /api/yield/bins` (derived from `INGEST_URL`, or `BINS_URL`):
+`{ deviceId, sessionId?, block?, binId?, weightKg, t, lat?, lon? }` (lat and lon together). The app has no bin UI yet;
+the queue code is in place for when it does.
+
+CORS on the ingest allows only `Origin: https://jonathanagronica.github.io`, so a real fetch test has to run from the
+live site (`tests/e2e-live.test.js`), not localhost.
 
 ## Files
 
@@ -99,14 +114,16 @@ Bin weights also go to `POST /api/yield/bins` (derived from `INGEST_URL`, or `BI
 python3 -m http.server 8231 &
 NODE_PATH=/path/to/node_modules(puppeteer-core, @xmldom/xmldom) node tests/logic.test.js
 NODE_PATH=... node tests/ui.test.js [baseUrl] [screenshotDir]
-NODE_PATH=... node tests/upload.test.js [baseUrl]      # stub AgronicaWorld endpoint: schema, 503 backoff, bins
+NODE_PATH=... node tests/upload.test.js [baseUrl]      # stub AgronicaWorld endpoint: flat schema, 1 MB/5000 caps, 400/401/429/503, bins, matched/unmatched
+NODE_PATH=... node tests/e2e-live.test.js [liveUrl]    # LIVE end-to-end: one test mark through the real queue against the real ingest
 NODE_PATH=... node tests/shots-map.js [baseUrl] [outDir]  # map screenshots over real Esri imagery (needs internet)
 NODE_PATH=... node tests/offline.test.js [baseUrl]     # service worker serves the shell with the network off
 ```
 
 `tests/ui.test.js` drives a 390 x 844 headless Chrome with simulated GPS along a row: layout overlap check, ratings,
 10-tree prompts (tap / skip / interpolation), Tree +1, rows, keypad, undo/edit/delete, map colours + heat layer,
-KML/CSV export and re-import de-dup, upload disabled, About/Macca, ads, Photo Count on CC photos (`tests/photos/CREDITS.md`).
+KML/CSV export and re-import de-dup, upload-off status, About/Macca, ads, Photo Count on CC photos (`tests/photos/CREDITS.md`).
+`tests/ui.test.js` and `tests/upload.test.js` stub `config.js` so a test run never posts to the live ingest.
 Satellite tiles are stubbed locally (`tests/tile-stub.js`).
 
 ## Photo Count accuracy (test photos)

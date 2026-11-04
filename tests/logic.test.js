@@ -45,13 +45,53 @@ t('summary counts per rating, total/average weight', () => {
   const s = Y.summary(marks); assert.equal(s.byRating.low, 1); assert.equal(s.byRating.high, 1); assert.equal(s.byRating.vhigh, 1); assert.equal(s.interpolated, 1);
   assert.equal(s.totalKg, 412.5); assert.equal(s.avgKg, 412.5); assert.equal(s.totalCount, 120);
 });
-t('upload payload matches AgronicaWorld schema', () => {
+t('upload mark payload: flat server shape, no tree/count', () => {
   const U = global.Upload; const p = U.markPayload(marks[1]);
-  assert.deepEqual(Object.keys(p).slice(0, 5), ['id', 't', 'lat', 'lon', 'rating']); assert.equal(p.rating, 4); assert.equal(p.row, '3'); assert.equal(p.treeFrom, 11); assert.equal(p.estimate, 4);
-  assert.equal(U.markPayload(marks[3]), null, 'unrated count-only mark not sent as a rating mark'); assert.equal(U.binPayload(marks[3]).weightKg, 412.5);
+  assert.deepEqual(Object.keys(p).slice(0, 5), ['id', 't', 'lat', 'lon', 'rating']); assert.equal(p.rating, 4); assert.equal(p.row, '3'); assert.equal(p.treeFrom, 11); assert.equal(p.treeTo, 20); assert.equal(p.estimate, 4);
+  assert.ok(!('tree' in p) && !('count' in p), 'extra tree/count dropped');
+  assert.deepEqual(Object.keys(U.markPayload(marks[0])).sort(), ['acc', 'heading', 'id', 'lat', 'lon', 'rating', 'row', 't'], 'only listed optional fields');
+  assert.equal(U.markPayload(marks[3]), null, 'unrated count-only mark not sent as a rating mark');
+  assert.equal(U.binPayload(marks[3]).weightKg, 412.5);
   assert.equal(U.markPayload({ ...marks[0], rating: 'nil' }).rating, 1);
-  const s = U.sessionPayload({ id: 's1', block: 'B7', variety: 'A16' }, { farm: 'F' }); assert.match(s.deviceId, /^[0-9a-f-]{36}$/); assert.equal(s.sessionId, 's1'); assert.ok(s.submittedAt); assert.equal(s.farm, 'F');
-  assert.equal(U.enabled(), false, 'disabled while URL/key blank');
+  // photo mark keeps photoCount/estNutsPerTree/estKgHa; interpolated flag survives
+  const ph = U.markPayload(marks[4]); assert.equal(ph.photoCount, 37); assert.equal(ph.estNutsPerTree, 370); assert.equal(ph.estKgHa, 868);
+  assert.equal(U.markPayload(marks[2]).interpolated, true);
+  // server-side ranges are respected so one bad value cannot fail a batch
+  const bad = U.markPayload({ ...marks[0], heading: 400, kg: 9999, row: 'x'.repeat(30), treeFrom: 9, treeTo: 3, acc: -2 });
+  assert.equal(bad.heading, 40); assert.equal(bad.binWeightKg, 5000); assert.equal(bad.row.length, 20); assert.ok(!('treeFrom' in bad) && !('treeTo' in bad)); assert.equal(bad.acc, 0);
+});
+t('upload session payload is FLAT (no nested session object)', () => {
+  const U = global.Upload;
+  const s = U.sessionPayload({ id: 's1', block: 'B7', variety: 'A16' }, { farm: 'F' });
+  assert.match(s.deviceId, /^[0-9a-f-]{36}$/); assert.equal(s.sessionId, 's1'); assert.ok(s.submittedAt); assert.equal(s.farm, 'F'); assert.equal(s.block, 'B7'); assert.equal(s.variety, 'A16');
+  assert.equal(s.appVersion, 'v2');
+  assert.ok(!('session' in s), 'no nested object');
+  const body = U.submitPayload({ id: 's1', block: 'B7' }, [U.markPayload(marks[1])], { farm: 'F' });
+  ['deviceId', 'appVersion', 'sessionId', 'submittedAt', 'farm', 'block', 'marks'].forEach(k => assert.ok(k in body, 'top-level ' + k));
+  assert.equal(body.marks.length, 1); assert.equal(body.session, undefined);
+  assert.equal(U.sessionPayload({ id: 'a b/c' }).sessionId, 'a-b-c', 'sessionId sanitised to [A-Za-z0-9._:-]');
+  assert.equal(U.sessionPayload({ id: 'TEST-agent-check-yield' }).sessionId, 'TEST-agent-check-yield', 'allowed chars kept');
+  assert.equal(U.sessionPayload({ id: 'x'.repeat(80) }).sessionId.length, 64, 'sessionId max 64');
+  const c = U.sessionPayload({ id: 's1' }, { contact: { name: 'Mac', email: 'mac@example.com' } }); assert.equal(c.contact.email, 'mac@example.com');
+  assert.equal(U.enabled(), true, 'enabled: config.js has the URL + key');
+});
+t('upload batching respects 1 MB and 5000 marks', () => {
+  const U = global.Upload, base = U.sessionPayload({ id: 'big', block: 'B7' });
+  const mk = i => ({ id: 'm' + i, t: '2026-11-04T00:00:00.000Z', lat: -24.9, lon: 152.3, rating: 3 });
+  const many = Array.from({ length: 11000 }, (_, i) => mk(i));
+  const parts = U.chunks(base, many, null);
+  assert.ok(parts.every(b => b.marks.length <= 5000), 'max 5000 marks: ' + parts.map(b => b.marks.length));
+  assert.equal(parts.reduce((a, b) => a + b.marks.length, 0), 11000);
+  const fat = Array.from({ length: 5000 }, (_, i) => ({ ...mk(i), id: 'f' + i, note: 'z'.repeat(240) }));
+  const fp = U.chunks(base, fat, null);
+  assert.ok(fp.length > 1, 'fat marks split: ' + fp.length); fp.forEach(b => assert.ok(Buffer.byteLength(JSON.stringify(b)) <= 1048576, 'under 1 MB: ' + Buffer.byteLength(JSON.stringify(b))));
+  assert.equal(fp.reduce((a, b) => a + b.marks.length, 0), 5000);
+  // the track rides on the first request only, and is dropped if it would eat the budget
+  const tr = Array.from({ length: 500 }, (_, i) => ({ lat: -24.9, lon: 152.3, t: '2026-11-04T00:00:00.000Z' }));
+  const tp = U.chunks(base, many, tr); assert.equal(tp[0].track.length, 500); assert.ok(tp.slice(1).every(b => !b.track));
+  const huge = Array.from({ length: 20000 }, (_, i) => ({ lat: -24.9, lon: 152.3, t: '2026-11-04T00:00:00.000Z', pad: 'q'.repeat(40) }));
+  assert.ok(U.chunks(base, [mk(1)], huge).every(b => !b.track), 'oversize track dropped, marks still sent');
+  assert.equal(U.trackPayload(Array.from({ length: 30000 }, (_, i) => ({ lat: -24.9, lon: 152.3, ts: 1730000000000 }))).length, 20000, 'track capped at 20000');
 });
 t('photo yield maths + t/ha rating bands', () => {
   const e = PC.yieldEstimate(50, { coverPct: 10, rowSp: 8, treeSp: 4, nisG: 7.5 }); assert.equal(e.nutsPerTree, 500); assert.equal(e.treesHa, 313); assert.equal(e.kgHa, 1172);
