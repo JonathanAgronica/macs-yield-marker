@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#171717">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Yield Marker">
+<meta name="description" content="Mac's Yield Marker by Agronica: rate macadamia yield or record nut counts and bin weights at GPS points, see a coloured yield map, export KML/CSV.">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="yield.css">
+<title>Mac's Yield Marker - Agronica</title>
+</head>
+<body data-view="mark">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.6" fill="currentColor"/></symbol>
+    <symbol id="i-find" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 8.5l-2 5-5 2 2-5z" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14L4 9l5-5M4 9h9.5a6.5 6.5 0 0 1 0 13H10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 15V3m0 0L8 7m4-4l4 4M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M5 19c0-9 5-14 15-14 0 10-5 15-14 15M5 19l7-7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-vol" viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5zM15.5 9a4 4 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-vib" viewBox="0 0 24 24"><rect x="8" y="4" width="8" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 8v8M20 8v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 7V4h4v3M6.5 7l1 13h9l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.5 7l8.5 6.5L20.5 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><path d="M9.2 9a2.9 2.9 0 1 1 4.2 2.6c-.9.5-1.4 1.1-1.4 2.1M12 17.2v.1" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 17V11a6 6 0 0 1 12 0v6l1.5 2h-15zM10 21h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-map" viewBox="0 0 24 24"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z M9 4v14M15 6v14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-scale" viewBox="0 0 24 24"><path d="M5 8h14l-2 12H7zM9 8a3 3 0 0 1 6 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  </defs>
+</svg>
+
+<header>
+  <img src="icons/logo.png" alt="Mac's Yield Marker" class="logo">
+  <div class="title"><img src="img/agronica-logo.svg" alt="Agronica" class="hlogo"><span>Mac's Yield Marker</span></div>
+  <div id="status" class="pill off"><i></i><b>STOPPED</b></div>
+  <button id="helpFab" class="help-fab js-help" type="button" aria-label="Ask Macca, the Yield Marker Helper" title="Ask Macca"><img src="img/helper.png" alt="" width="36" height="36"><b>?</b></button>
+</header>
+
+<div id="views">
+  <!-- ============ MARK ============ -->
+  <section id="viewMark" class="view active" aria-label="Mark yield">
+    <div class="top">
+      <div id="sessCard" class="card">
+        <div class="sess-row">
+          <label class="fld"><span>Block</span><input id="block" type="text" maxlength="40" placeholder="e.g. Block 7" autocomplete="off" enterkeyhint="done"></label>
+          <label class="fld var"><span>Variety</span><select id="variety"></select></label>
+        </div>
+        <input id="varOther" class="hidden" type="text" maxlength="40" placeholder="Variety name" aria-label="Other variety">
+        <div class="gps-row"><span id="gpsTxt" class="dim">GPS off</span><b id="nmarks">0 marks</b><button class="mini-link js-about" type="button" id="aboutLink">About</button></div>
+      </div>
+      <div id="controls">
+        <button id="startStop" class="start" type="button"><svg class="ic"><use href="#i-play"/></svg><span>START</span></button>
+        <button id="undo" class="sq" type="button" aria-label="Undo last mark" title="Undo last"><svg class="ic"><use href="#i-undo"/></svg></button>
+        <button id="menuBtn" class="sq" type="button" aria-label="Menu" title="Menu"><svg class="ic"><use href="#i-menu"/></svg></button>
+      </div>
+      <div id="rtRow" class="rt-row">
+        <span class="rt-lbl">Row</span>
+        <button type="button" class="stp" id="rowDn" aria-label="Previous row">&minus;</button>
+        <b id="rowVal" class="row-val">1</b>
+        <button type="button" class="stp" id="rowUp" aria-label="Next row">+</button>
+        <span class="tr-box"><small class="rt-lbl">Trees</small><b id="treeVal">0</b><small id="treeNext" class="dim">prompt at 10</small></span>
+        <button type="button" id="treeUp" class="tree-up">TREE +1</button>
+      </div>
+      <div id="msg" role="status"></div>
+    </div>
+    <div id="rateBtns" role="group" aria-label="Yield estimate">
+      <button type="button" class="rate r-vhigh" data-rate="vhigh"><span>VERY HIGH</span><small id="nVhigh">0</small></button>
+      <button type="button" class="rate r-high" data-rate="high"><span>HIGH</span><small id="nHigh">0</small></button>
+      <button type="button" class="rate r-medium" data-rate="medium"><span>MEDIUM</span><small id="nMedium">0</small></button>
+      <button type="button" class="rate r-low" data-rate="low"><span>LOW</span><small id="nLow">0</small></button>
+      <button type="button" class="rate r-nil" data-rate="nil"><span>NIL</span><small id="nNil">0</small></button>
+    </div>
+    <div id="rateBtns2"><button type="button" id="btnCount" class="rate2 r-count"><svg class="ic"><use href="#i-scale"/></svg><span>Count / bin weight</span></button></div>
+  </section>
+
+  <!-- ============ MAP ============ -->
+  <section id="viewMap" class="view" aria-label="Yield map">
+    <div class="map-top">
+      <div class="seg" role="tablist" aria-label="Map colours">
+        <button type="button" data-mode="rating" class="on">Rating</button><button type="button" data-mode="kg">Weight kg</button><button type="button" data-mode="estimate">Estimate</button><button type="button" data-mode="count">Count</button>
+      </div>
+      <div class="map-acts"><button type="button" class="chip-btn" id="mapFit">Fit</button><button type="button" class="chip-btn" id="mapFollow">Follow me</button><button type="button" class="chip-btn" id="mapSave">Save area offline</button></div>
+    </div>
+    <div id="ymap"></div>
+    <div id="legend" class="ylegend"></div>
+    <div id="mapMsg" class="dim small-txt" role="status"></div>
+  </section>
+
+  <!-- ============ SUMMARY ============ -->
+  <section id="viewSum" class="view" aria-label="Session summary">
+    <div class="scroll">
+      <div class="card">
+        <div class="card-title">Summary <select id="sumScope" aria-label="Summary scope"></select></div>
+        <div id="sumBody"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Export &amp; share</div>
+        <div class="btn-row two"><button id="expKml" class="soft" type="button"><svg class="ic"><use href="#i-share"/></svg><span>KML</span></button><button id="expCsv" class="soft" type="button"><svg class="ic"><use href="#i-share"/></svg><span>CSV</span></button></div>
+        <button id="impKml" class="soft full" type="button"><svg class="ic"><use href="#i-upload"/></svg><span>Import / merge KML</span></button>
+        <div class="dim small-txt" style="margin-top:8px">Exports use the scope selected above. Import adds someone else's marks; duplicates are skipped.</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Marks <span id="listCount" class="dim"></span></div>
+        <ul id="list"></ul>
+      </div>
+    </div>
+  </section>
+  <!-- ============ PHOTO COUNT ============ -->
+  <section id="viewPhoto" class="view" aria-label="Photo count">
+    <div class="scroll">
+      <div class="card">
+        <div class="card-title">Photo count <span class="dim small-txt">on-device estimate</span></div>
+        <div class="btn-row two"><button id="phTake" class="start" type="button"><svg class="ic"><use href="#i-pin"/></svg><span>Take photo</span></button><button id="phPick" class="soft" type="button"><svg class="ic"><use href="#i-upload"/></svg><span>Choose photo</span></button></div>
+        <input type="file" id="phCam" accept="image/*" capture="environment" hidden><input type="file" id="phFile" accept="image/*" hidden>
+        <div id="phTag" class="dim small-txt"></div>
+      </div>
+      <div id="phWrap" class="ph-wrap empty"><canvas id="phCanvas" width="640" height="480"></canvas><div class="ph-empty">Take a photo of a section of canopy. Nuts found are circled; tap a circle to remove it, tap a nut to add one.</div></div>
+      <div class="card">
+        <div class="ph-count"><b id="phN">0</b><span>nuts <small id="phNsub" class="dim"></small></span></div>
+        <div class="seg ph-seg" role="tablist" aria-label="Filter"><button type="button" data-f="green" class="on">Green husk</button><button type="button" data-f="brown">Brown nut</button><button type="button" data-f="shape">Edge / circle</button></div>
+        <label class="chk"><input id="phEnh" type="checkbox"> Contrast enhance (CLAHE-style)</label>
+        <div class="field"><label for="phThr">Threshold <b id="phThrV"></b></label><input type="range" id="phThr" min="0" max="100" value="50"></div>
+        <div class="field"><label for="phMin">Min nut size (px) <b id="phMinV"></b></label><input type="range" id="phMin" min="2" max="60" value="8"></div>
+        <div class="field"><label for="phMax">Max nut size (px) <b id="phMaxV"></b></label><input type="range" id="phMax" min="6" max="160" value="45"></div>
+        <div class="field"><label for="phRnd">Roundness <b id="phRndV"></b></label><input type="range" id="phRnd" min="0" max="100" value="45"></div>
+        <div class="btn-row two"><button id="phReset" class="soft" type="button"><span>Clear my edits</span></button><button id="phAi" class="soft" type="button" disabled title="Server-side AI count (coming)"><span>AI count</span></button></div>
+        <div id="phAiNote" class="dim small-txt"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Yield estimate <span class="est-badge">ESTIMATE</span></div>
+        <div class="ph-grid">
+          <label>Photo covers % of canopy<input id="phCover" type="number" inputmode="decimal" min="0.5" max="100" step="0.5" value="10"></label>
+          <label>Nut-in-shell weight (g)<input id="phNis" type="number" inputmode="decimal" min="2" max="20" step="0.1" value="7.5"></label>
+          <label>Row spacing (m)<input id="phRowSp" type="number" inputmode="decimal" min="1" max="20" step="0.1" value="8"></label>
+          <label>Tree spacing (m)<input id="phTreeSp" type="number" inputmode="decimal" min="0.5" max="30" step="0.1" value="4"></label>
+        </div>
+        <div id="phOut" class="ph-out"></div>
+        <p class="dim small-txt">Rough estimate only: nuts in photo &divide; canopy fraction = nuts per tree; &times; trees/ha &times; NIS weight = kg/ha. Calibrate the NIS weight (start at ~7.5 g nut-in-shell; weigh 100 nuts from the block to calibrate) and the canopy % against real bin weights for each block.</p>
+        <button id="phSave" class="start full" type="button"><svg class="ic"><use href="#i-check"/></svg><span>Save as mark</span></button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div id="flash"></div>
+<div id="adbar" class="adbar hidden"><a id="adLink" href="https://www.agronicaag.com" target="_blank" rel="noopener noreferrer"><img id="adImg" alt="" width="56" height="32"><span class="ad-t"><b id="adName"></b><small id="adText"></small></span></a><i class="ad-tag">Ad</i></div>
+
+<nav class="tabs" role="tablist">
+  <button id="tabMark" role="tab" aria-selected="true" class="active" data-v="mark"><svg class="ic"><use href="#i-pin"/></svg><span>Mark</span></button>
+  <button id="tabMap" role="tab" aria-selected="false" data-v="map"><svg class="ic"><use href="#i-map"/></svg><span>Yield map</span></button>
+  <button id="tabPhoto" role="tab" aria-selected="false" data-v="photo"><svg class="ic"><use href="#i-scale"/></svg><span>Photo</span></button>
+  <button id="tabSum" role="tab" aria-selected="false" data-v="sum"><svg class="ic"><use href="#i-chart"/></svg><span>Summary</span></button>
+</nav>
+
+<div id="sheet" class="hidden">
+  <div class="sheet-head"><b>Menu</b><button id="closeSheet" class="soft small" type="button"><svg class="ic"><use href="#i-x"/></svg><span>Close</span></button></div>
+  <div class="actions">
+    <button id="mExpKml" class="act" type="button"><svg class="ic"><use href="#i-share"/></svg>Export / share KML</button>
+    <button id="mExpCsv" class="act" type="button"><svg class="ic"><use href="#i-share"/></svg>Export / share CSV</button>
+    <button id="mImp" class="act" type="button"><svg class="ic"><use href="#i-upload"/></svg>Import / merge KML</button>
+    <button id="mSum" class="act" type="button"><svg class="ic"><use href="#i-chart"/></svg>Summary &amp; edit marks</button>
+    <div class="act setcard"><b>Driving settings</b>
+      <label>Tree spacing (m, this block)<input id="setSpacing" type="number" inputmode="decimal" min="0.5" max="30" step="0.1" value="4"></label>
+      <label>Prompt for an estimate every N trees (0 = off)<input id="setEvery" type="number" inputmode="numeric" min="0" max="200" step="1" value="10"></label>
+      <label>Farm (sent with uploads)<input id="setFarm" type="text" maxlength="60"></label>
+      <label class="chk"><input id="setAutoRow" type="checkbox" checked> Auto row +1 when I U-turn at the row end</label>
+      <label class="chk"><input id="setSound" type="checkbox" checked> Beep + vibrate on each tap</label>
+      <div id="upStatus" class="dim small-txt"></div>
+    </div>
+    <button id="menuAbout" class="act" type="button"><svg class="ic"><use href="#i-globe"/></svg>About Agronica</button>
+    <button id="menuHelp" class="act" type="button"><svg class="ic"><use href="#i-help"/></svg>Ask Macca</button>
+    <button id="clearBtn" class="act danger" type="button"><svg class="ic"><use href="#i-trash"/></svg>Delete all marks</button>
+  </div>
+  <input type="file" id="importFile" accept=".kml,application/vnd.google-earth.kml+xml,application/xml,text/xml,*/*" hidden>
+</div>
+
+<div id="est" class="hidden" role="dialog" aria-label="Yield estimate for this segment">
+  <div class="est-panel">
+    <div class="est-head"><div><b id="estTitle">Trees 1-10</b><small id="estSub">Row 1 - tap the yield estimate (1-5)</small></div><button id="estSkip" class="est-skip" type="button">SKIP</button></div>
+    <div id="estKeys" class="est-keys" role="group" aria-label="Estimate 1 to 5">
+      <button type="button" class="ek r-vhigh" data-est="5"><b>5</b><span>Very high</span></button>
+      <button type="button" class="ek r-high" data-est="4"><b>4</b><span>High</span></button>
+      <button type="button" class="ek r-medium" data-est="3"><b>3</b><span>Medium</span></button>
+      <button type="button" class="ek r-low" data-est="2"><b>2</b><span>Low</span></button>
+      <button type="button" class="ek r-nil" data-est="1"><b>1</b><span>Nil</span></button>
+    </div>
+    <div id="estTimer" class="est-timer"><i></i></div>
+  </div>
+</div>
+<!-- count / weight keypad + edit sheet -->
+<div id="pad" class="hidden" role="dialog" aria-modal="true" aria-label="Count or weight">
+  <div class="pad-back" id="padBack"></div>
+  <div class="pad-panel">
+    <div class="pad-head"><b id="padTitle">Count / weight</b><button id="padClose" class="sq small" type="button" aria-label="Cancel"><svg class="ic"><use href="#i-x"/></svg></button></div>
+    <div id="padRate" class="pad-rate hidden" role="group" aria-label="Rating"></div>
+    <div class="seg pad-seg" role="tablist"><button type="button" data-unit="count" class="on">Nut count</button><button type="button" data-unit="kg">Weight kg</button></div>
+    <div class="pad-vals"><div id="padCount" class="pv on" data-unit="count"><small>Nuts</small><b>–</b></div><div id="padKg" class="pv" data-unit="kg"><small>kg</small><b>–</b></div></div>
+    <div id="keys" class="keys">
+      <button type="button" data-k="1">1</button><button type="button" data-k="2">2</button><button type="button" data-k="3">3</button>
+      <button type="button" data-k="4">4</button><button type="button" data-k="5">5</button><button type="button" data-k="6">6</button>
+      <button type="button" data-k="7">7</button><button type="button" data-k="8">8</button><button type="button" data-k="9">9</button>
+      <button type="button" data-k="." id="kDot">.</button><button type="button" data-k="0">0</button><button type="button" data-k="del" aria-label="Delete digit">&#9003;</button>
+    </div>
+    <div class="pad-btns"><button id="padDelete" class="soft hidden" type="button"><svg class="ic"><use href="#i-trash"/></svg><span>Delete</span></button><button id="padSave" class="start" type="button"><svg class="ic"><use href="#i-check"/></svg><span>SAVE</span></button></div>
+  </div>
+</div>
+
+<div id="about" class="hidden" role="dialog" aria-label="About Agronica">
+  <div class="sheet-head"><b>About Agronica</b><button id="closeAbout" class="soft small" type="button"><svg class="ic"><use href="#i-x"/></svg><span>Close</span></button></div>
+  <div id="aboutBody"></div>
+</div>
+<div id="help" class="hidden" role="dialog" aria-label="Macca the Yield Marker Helper">
+  <div class="help-back" id="helpBack"></div>
+  <div class="help-panel">
+    <div class="help-head"><img src="img/helper.png" alt="" width="44" height="44"><div><b>Macca the Yield Marker Helper</b><small>Ask about the app - works offline</small></div><button id="closeHelp" class="sq small" type="button" aria-label="Close help"><svg class="ic"><use href="#i-x"/></svg></button></div>
+    <div id="helpLog" aria-live="polite"></div>
+    <div id="helpChips" class="qchips"></div>
+    <form id="helpForm" autocomplete="off"><input id="helpInput" type="text" placeholder="Type a question..." aria-label="Your question" enterkeyhint="send"><button type="submit" class="start" id="helpSend">Ask</button></form>
+  </div>
+</div>
+<div id="toast" role="status"></div>
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="yield.js"></script>
+<script src="ymap.js"></script>
+<script src="config.js"></script>
+<script src="upload.js"></script>
+<script src="photocount.js"></script>
+<script src="app.js"></script>
+<script src="photo.js"></script>
+<script src="extras.js"></script>
+</body>
+</html>

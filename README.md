@@ -1,0 +1,110 @@
+# Mac's Yield Marker (Agronica)
+
+Mobile web app (PWA) for estimating macadamia yield block by block, part of the **AgronicaWorld** toolbox by
+Agronica Pty Ltd (Bundaberg / Alloway QLD).
+
+**Live:** https://jonathanagronica.github.io/macs-yield-marker/
+
+Built for **driving down the rows**: huge one-tap rating buttons with beep / vibration / colour-flash confirmation,
+a GPS tree counter that prompts for a 1-5 estimate every 10 trees, and a heat map of each block. Data is exported as
+KML / CSV now and will upload to AgronicaWorld for block heat mapping once the server key is issued.
+
+## Features
+
+- **Session start/stop** with GPS (`watchPosition`, track point every 2 s), block name, variety
+  (A4, A16, A38, 741, 344, 246, 816, 842, 660, A203, MCT1, P, G, J, R, 47, Other), screen wake lock.
+- **Primary screen = yield estimate.** Five full-width buttons: VERY HIGH / HIGH / MEDIUM / LOW / NIL (ratings 5..1),
+  ~366 x 65 px each on a 390 x 844 phone. One tap saves a mark at the current GPS point with row, tree, heading.
+- **Rows:** big - / + row control; *Auto row* (Menu) adds 1 when GPS sees a U-turn at the row end. Changing row resets the tree count.
+- **Tree counting + 10-tree prompts:** trees = distance travelled along the row / tree spacing (default 4 m, set per
+  block in Menu). Every N trees (default 10, Menu, 0 = off) the phone beeps + vibrates and shows five huge 1-5 buttons.
+  One tap saves a mark with `treeFrom`, `treeTo`, `row`, `estimate`. **SKIP** (or ignore it: it closes after 25 s). GPS never stops.
+  **TREE +1** is the manual override.
+- **Skipped / missed segments** are saved with `interpolated: true`; their value is the inverse-distance-weighted
+  average of real marks within ~80 m and is recomputed as new marks arrive, so the heat map has no gaps. Shown faded/dashed.
+- **Count / bin weight** (secondary screen, built to grow): nut count or bin/bag weight in kg on a big one-hand keypad, saved at the GPS point.
+- **Photo Count** (Photo tab): take/choose a photo (tagged with GPS, row, tree); on-device canvas pipeline counts nuts.
+  Filters: *Green husk* (HSV + ExG thresholds: yellow-green, lighter, less blue than leaves), *Brown nut* (mature/fallen),
+  *Edge / circle* (bright-blob top-hat detector). Optional CLAHE-style contrast enhancement. Sliders: threshold, min/max
+  nut size, roundness. Touching nuts are separated with a distance transform + non-maximum suppression.
+  Tap a circle to remove it, tap a nut to add one. Yield **estimate**: nuts in photo / (% of canopy in photo) = nuts per
+  tree; x trees/ha (10 000 / (row spacing x tree spacing)) x nut-in-shell weight (default 7.5 g - calibrate by weighing
+  100 nuts from the block) = kg/ha and t/ha. Saved as a mark with `photoCount`, `estNutsPerTree`, `estKgHa`, rating from
+  t/ha (<0.5 = 1, 0.5-2 = 2, 2-3.5 = 3, 3.5-5 = 4, >=5 = 5). **AI count** button is a placeholder for a server-side model
+  (`AI_COUNT_URL` in `config.js`, disabled while blank; no API keys in this static app).
+- **Undo** last mark; **edit / delete** any mark (Summary list, or tap a dot on the map -> Edit).
+- **Yield map:** Esri World Imagery satellite tiles (vendored Leaflet), smooth IDW heat layer on a canvas + dots.
+  Views: *Rating* (red low -> amber -> green high), *Weight kg*, *Estimate*, *Count* (colour ramp with min/max legend).
+  Follow me, Fit, and *Save area offline*; viewed tiles are cached by the service worker.
+- **Export** KML (per-placemark aabbggrr colours + full ExtendedData round-trip + GPS track) and CSV; Web Share API
+  where available, otherwise a download. **Import / merge** KML or CSV from another person with de-duplication (by id,
+  or same time/place/value).
+- **Summary:** counts per rating, average rating, estimates (+ interpolated), counts, total and average weight; per session or all.
+- About Agronica page, **Macca the Yield Marker Helper** (offline FAQ), discreet cycling ad strip (`ads.json`, no pop-ups).
+- Offline PWA: versioned cache, network-first app shell, auto-reload on update (deferred while GPS is running).
+
+## CSV columns
+
+`time, lat, lon, accuracy_m, block, variety, row, tree, tree_from, tree_to, rating, rating_1to5, estimate, count,
+weight_kg, heading, interpolated, photo_count, est_nuts_per_tree, est_kg_ha, session, id`
+
+## AgronicaWorld upload payload
+
+`upload.js` keeps a localStorage queue (survives offline/reloads), retries with exponential backoff (30 s doubling to
+30 min), and uses a random UUID `deviceId`. **Disabled until both `INGEST_URL` and `INGEST_KEY` are set in `config.js`**
+(placeholder: `https://170-64-148-102.sslip.io/api/yield/submit`).
+
+`POST {INGEST_URL}` with header `X-Ingest-Key: <key>`, `Content-Type: application/json`:
+
+```json
+{
+  "session": {
+    "deviceId": "6f1c...-uuid", "appVersion": "v1", "sessionId": "s lzx3k2", "submittedAt": "2026-11-04T00:30:00.000Z",
+    "farm": "optional", "block": "optional", "variety": "optional", "contact": "optional"
+  },
+  "marks": [
+    { "id": "y...", "t": "2026-11-04T00:12:03.000Z", "lat": -24.98, "lon": 152.38, "acc": 3.2, "row": "12",
+      "rating": 4, "binWeightKg": 412.5, "heading": 91,
+      "treeFrom": 11, "treeTo": 20, "estimate": 4, "interpolated": true, "tree": "15", "count": 120,
+      "photoCount": 37, "estNutsPerTree": 370, "estKgHa": 868 }
+  ]
+}
+```
+
+- `t` is ISO 8601 UTC. `rating` is an integer 1-5 (1 Nil, 2 Low, 3 Medium, 4 High, 5 Very high). A 10-tree estimate is
+  itself 1-5, so `rating = estimate`; interpolated values are rounded to the nearest rating and `estimate` keeps the decimal.
+- Required: `id, t, lat, lon, rating`. Optional: `acc, row (string), binWeightKg, heading`.
+- **Extra fields** the server should accept (or ignore): `treeFrom, treeTo, estimate, interpolated, tree, count, photoCount, estNutsPerTree, estKgHa`.
+- Marks are re-sent with the same `id` when edited or when an interpolated value is filled in, so the server should **upsert by `id`**.
+- Marks with no rating (count/weight only, or interpolated with no neighbours yet) are not sent as rating marks.
+- Up to 500 marks per request, one request per session. Expected response: `{ ok, received, matched: { block: count }, unmatched }`.
+
+Bin weights also go to `POST /api/yield/bins` (derived from `INGEST_URL`, or `BINS_URL`):
+`{ deviceId, sessionId?, block?, binId?, weightKg, t, lat?, lon? }`.
+
+## Files
+
+`index.html`, `style.css` (shared Agronica style) + `yield.css`, `yield.js` (ratings, colours, KML/CSV, merge, interpolation, summary),
+`ymap.js` (Leaflet map + IDW heat layer), `app.js` (session, GPS, rows/trees, prompts, pad, export/import), `photocount.js`
+(nut detector + yield maths), `photo.js` (Photo tab), `upload.js`, `config.js`, `extras.js` (About, Macca, ads), `sw.js`, `manifest.json`, `ads.json`.
+
+## Tests
+
+```
+python3 -m http.server 8231 &
+NODE_PATH=/path/to/node_modules(puppeteer-core, @xmldom/xmldom) node tests/logic.test.js
+NODE_PATH=... node tests/ui.test.js [baseUrl] [screenshotDir]
+```
+
+`tests/ui.test.js` drives a 390 x 844 headless Chrome with simulated GPS along a row: layout overlap check, ratings,
+10-tree prompts (tap / skip / interpolation), Tree +1, rows, keypad, undo/edit/delete, map colours + heat layer,
+KML/CSV export and re-import de-dup, upload disabled, About/Macca, ads, Photo Count on CC photos (`tests/photos/CREDITS.md`).
+Satellite tiles are stubbed locally (`tests/tile-stub.js`).
+
+## Credits
+
+- **App icon photo:** "Macadamia-nut-912598.jpg" (macadamia nuts on drying racks) by **Joseph Hill**, Wikimedia Commons,
+  **CC0 1.0** - https://commons.wikimedia.org/wiki/File:Macadamia-nut-912598.jpg - cropped, recoloured and overlaid with the Agronica mark.
+- Satellite imagery © Esri and partners. Leaflet (BSD-2). Test photos: see `tests/photos/CREDITS.md`.
+
+© Agronica Pty Ltd · 4468 Goodwood Road, Alloway QLD 4670 · (+61) 475 570 872 · jonathan@agronicaag.com
