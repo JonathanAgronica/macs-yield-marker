@@ -115,7 +115,9 @@ python3 -m http.server 8231 &
 NODE_PATH=/path/to/node_modules(puppeteer-core, @xmldom/xmldom) node tests/logic.test.js
 NODE_PATH=... node tests/ui.test.js [baseUrl] [screenshotDir]
 NODE_PATH=... node tests/upload.test.js [baseUrl]      # stub AgronicaWorld endpoint: flat schema, 1 MB/5000 caps, 400/401/429/503, bins, matched/unmatched
-NODE_PATH=... node tests/e2e-live.test.js [liveUrl]    # LIVE end-to-end: one test mark through the real queue against the real ingest
+NODE_PATH=... node tests/e2e-live.test.js [liveUrl] [--reuse]
+                                                       # LIVE end-to-end: ONE test mark through the real queue against the real
+                                                       # ingest (saved in tests/.e2e-last.json; --reuse resends it, received:0)
 NODE_PATH=... node tests/shots-map.js [baseUrl] [outDir]  # map screenshots over real Esri imagery (needs internet)
 NODE_PATH=... node tests/offline.test.js [baseUrl]     # service worker serves the shell with the network off
 ```

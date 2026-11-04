@@ -194,7 +194,7 @@
       var g = groups[sid], sess = {}; for (var k in g.s) sess[k] = g.s[k]; sess.id = sid;
       var base = sessionPayload(sess, extra);
       // the session's GPS track rides along once per new stretch of driving (the server upserts it per session)
-      var track = extra.track && extra.track.sid === sid ? trackPayload(extra.track.points) : null;
+      var track = extra.track && cleanSessionId(extra.track.sid) === sid ? trackPayload(extra.track.points) : null;
       if (track && q.trackSent[sid] === track.length) track = null;
       chunks(base, g.marks, track).forEach(function (body) {
         run = run.then(function () {
