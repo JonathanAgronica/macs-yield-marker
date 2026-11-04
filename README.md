@@ -101,6 +101,7 @@ NODE_PATH=/path/to/node_modules(puppeteer-core, @xmldom/xmldom) node tests/logic
 NODE_PATH=... node tests/ui.test.js [baseUrl] [screenshotDir]
 NODE_PATH=... node tests/upload.test.js [baseUrl]      # stub AgronicaWorld endpoint: schema, 503 backoff, bins
 NODE_PATH=... node tests/shots-map.js [baseUrl] [outDir]  # map screenshots over real Esri imagery (needs internet)
+NODE_PATH=... node tests/offline.test.js [baseUrl]     # service worker serves the shell with the network off
 ```
 
 `tests/ui.test.js` drives a 390 x 844 headless Chrome with simulated GPS along a row: layout overlap check, ratings,
