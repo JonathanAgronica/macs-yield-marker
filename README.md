@@ -101,6 +101,23 @@ NODE_PATH=... node tests/ui.test.js [baseUrl] [screenshotDir]
 KML/CSV export and re-import de-dup, upload disabled, About/Macca, ads, Photo Count on CC photos (`tests/photos/CREDITS.md`).
 Satellite tiles are stubbed locally (`tests/tile-stub.js`).
 
+## Photo Count accuracy (test photos)
+
+Filters tested on four CC photos of nuts on the tree (`tests/photos/`, credits there), all resized to 720 px:
+
+| photo | scene | Green husk (default) | Edge / circle | tuned (12-30 px, roundness 70) |
+|---|---|---|---|---|
+| p1 | one sparse cluster, bright bokeh background | 34 | 35 | 16 (about 8-10 nuts visible: **over-counts**) |
+| p2 | hanging racemes against dark foliage | 182 | 82 | 67 (dense: many missed / merged) |
+| p3 | dense canopy, nuts among bright leaves | 211 | 102 | 108 (**over-counts** on leaf highlights) |
+| p4 | close-up of one big cluster | 17 | 98 | 26 (about 15-20 nuts: **close**) |
+
+So: the colour filter is reliable on a close-up cluster filling the frame (p4: within roughly ±30 % after a couple of
+slider tweaks) and over-counts on busy backgrounds and dense canopy shots, where bokeh and shiny leaves look like nuts.
+The tap-to-remove / tap-to-add correction is therefore essential, and each block should be calibrated with a few known
+clusters. A server-side AI model (the placeholder **AI count** button) is the planned fix for the hard scenes. Because
+every photo estimate is scaled up by the canopy % and NIS weight, treat the saved kg/ha as **indicative only**.
+
 ## Credits
 
 - **App icon photo:** "Macadamia-nut-912598.jpg" (macadamia nuts on drying racks) by **Joseph Hill**, Wikimedia Commons,
