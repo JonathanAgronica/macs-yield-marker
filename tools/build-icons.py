@@ -4,7 +4,7 @@ import base64, io
 # plus the Agronica 'a' mark alpha (tools/mark.png). Crop region is proportional to the 4000x3000 original.
 import os
 src=Image.open(os.path.join(os.path.dirname(__file__),'macadamia-nut-912598.jpg')).convert('RGB')
-S0=src.width; cx0,cy0,cs=int(S0*0.0625),int(S0*0.4167),int(S0*0.425)
+W0,H0=src.size; cx0,cy0,cs=int(W0*907/4000),int(H0*357/3000),int(W0*1650/4000)   # same crop as the mistletoe icon
 crop=src.crop((cx0,cy0,cx0+cs,cy0+cs))
 crop=ImageEnhance.Contrast(crop).enhance(1.08); crop=ImageEnhance.Color(crop).enhance(1.12); crop=ImageEnhance.Brightness(crop).enhance(0.82)
 S=2048
