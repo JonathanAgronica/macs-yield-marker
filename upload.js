@@ -74,7 +74,9 @@
     if (Date.now() < q.next) { kick(q.next - Date.now()); return Promise.resolve(status()); }
     busy = true;
     var bySess = {};
-    Object.keys(q.marks).forEach(function (id) { var e = q.marks[id], p = markPayload(e.m); if (p) (bySess[e.s] = bySess[e.s] || []).push(p); });
+    var unrated = 0;
+    Object.keys(q.marks).forEach(function (id) { var e = q.marks[id], p = markPayload(e.m); if (p) (bySess[e.s] = bySess[e.s] || []).push(p); else { delete q.marks[id]; unrated++; } });
+    // no rating yet: stays in the app + CSV/KML, not a rating upload (re-queued if a rating is added on edit)
     var jobs = [];
     Object.keys(bySess).forEach(function (sid) {
       var list = bySess[sid].slice(0, BATCH), s = q.sessions[sid] || { id: sid };
@@ -86,11 +88,12 @@
     Object.keys(q.bins).slice(0, BATCH).forEach(function (id) {
       jobs.push(post(binsUrl(), binPayload(q.bins[id])).then(function () { delete q.bins[id]; }));
     });
+    q.unrated = unrated;
     return Promise.all(jobs).then(function () { q.fails = 0; q.next = 0; }, function (err) {
       q.fails++; q.next = Date.now() + Math.min(30 * 60e3, 30e3 * Math.pow(2, q.fails - 1)); q.lastErr = String(err && err.message || err);
     }).then(function () { busy = false; saveQ(); if (pending() && q.fails === 0) kick(500); else if (pending()) kick(q.next - Date.now()); return status(); });
   }
-  function status() { return { enabled: enabled(), pending: pending(), fails: q.fails, next: q.next, last: q.last, lastErr: q.lastErr || '', deviceId: deviceId() }; }
+  function status() { return { enabled: enabled(), pending: pending(), fails: q.fails, next: q.next, last: q.last, lastErr: q.lastErr || '', deviceId: deviceId(), unrated: q.unrated || 0 }; }
   if (typeof window !== 'undefined') {
     window.addEventListener('online', function () { q.next = 0; kick(200); });
     setInterval(function () { kick(0); }, 60e3);

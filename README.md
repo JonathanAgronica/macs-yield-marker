@@ -76,7 +76,9 @@ weight_kg, heading, interpolated, photo_count, est_nuts_per_tree, est_kg_ha, ses
 - Required: `id, t, lat, lon, rating`. Optional: `acc, row (string), binWeightKg, heading`.
 - **Extra fields** the server should accept (or ignore): `treeFrom, treeTo, estimate, interpolated, tree, count, photoCount, estNutsPerTree, estKgHa`.
 - Marks are re-sent with the same `id` when edited or when an interpolated value is filled in, so the server should **upsert by `id`**.
-- Marks with no rating (count/weight only, or interpolated with no neighbours yet) are not sent as rating marks.
+- Marks with no rating (count/weight only, or interpolated with no neighbours yet) stay in the app and in CSV/KML but are
+  not sent as rating marks; they upload separately as bin weights (`/api/yield/bins`) and are re-queued if you later give
+  them a rating. If you want a rating for a count-only mark, edit it and pick one.
 - Up to 500 marks per request, one request per session. Expected response: `{ ok, received, matched: { block: count }, unmatched }`.
 
 Bin weights also go to `POST /api/yield/bins` (derived from `INGEST_URL`, or `BINS_URL`):
@@ -94,6 +96,8 @@ Bin weights also go to `POST /api/yield/bins` (derived from `INGEST_URL`, or `BI
 python3 -m http.server 8231 &
 NODE_PATH=/path/to/node_modules(puppeteer-core, @xmldom/xmldom) node tests/logic.test.js
 NODE_PATH=... node tests/ui.test.js [baseUrl] [screenshotDir]
+NODE_PATH=... node tests/upload.test.js [baseUrl]      # stub AgronicaWorld endpoint: schema, 503 backoff, bins
+NODE_PATH=... node tests/shots-map.js [baseUrl] [outDir]  # map screenshots over real Esri imagery (needs internet)
 ```
 
 `tests/ui.test.js` drives a 390 x 844 headless Chrome with simulated GPS along a row: layout overlap check, ratings,
