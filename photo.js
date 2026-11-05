@@ -184,10 +184,9 @@
     b.classList.toggle('hidden', !on);
     if (!on) return;
     $('phAiBadgeN').textContent = aiNuts().length;
-    $('phAiBadgeC').textContent = aiBusy2() ? 'updating...' : (st.ai.confidence != null ? Math.round(st.ai.confidence * 100) + '%' : '');
+    $('phAiBadgeC').textContent = st.aiBusy ? 'updating...' : (st.ai.confidence != null ? Math.round(st.ai.confidence * 100) + '%' : '');
     b.classList.toggle('off', !srcIsAi());
   }
-  function aiBusy2() { return !!st.aiBusy; }
   function editLine() {
     if (!st.ai) return '';
     var a = st.ai, live = aiNuts().length, d = live - a.count;
