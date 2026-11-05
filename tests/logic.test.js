@@ -64,7 +64,7 @@ t('upload session payload is FLAT (no nested session object)', () => {
   const U = global.Upload;
   const s = U.sessionPayload({ id: 's1', block: 'B7', variety: 'A16' }, { farm: 'F' });
   assert.match(s.deviceId, /^[0-9a-f-]{36}$/); assert.equal(s.sessionId, 's1'); assert.ok(s.submittedAt); assert.equal(s.farm, 'F'); assert.equal(s.block, 'B7'); assert.equal(s.variety, 'A16');
-  assert.equal(s.appVersion, 'v3');
+  assert.equal(s.appVersion, 'v4');
   assert.ok(!('session' in s), 'no nested object');
   const body = U.submitPayload({ id: 's1', block: 'B7' }, [U.markPayload(marks[1])], { farm: 'F' });
   ['deviceId', 'appVersion', 'sessionId', 'submittedAt', 'farm', 'block', 'marks'].forEach(k => assert.ok(k in body, 'top-level ' + k));
@@ -241,5 +241,38 @@ t('v3: presets are the documented four and every one produces a sane count', () 
   assert.ok(run(SETS.brown, P[2].o).nuts.length >= 5, 'brown preset finds the brown nuts: ' + run(SETS.brown, P[2].o).nuts.length);
   assert.equal(run(SETS.leafA, P[2].o).nuts.length, 0, 'brown preset invents nothing on green leaves');
   assert.ok(run(SETS.leafA, P[3].o).nuts.length <= 40, 'dense-canopy preset caps itself with best-N');
+});
+// ---------- v4: AI count module (pure parts; the network + canvas paths run in tests/ai.test.js) ----------
+const AI = require('../aicount.js');
+t('v4: AI error messages are plain language and always point back to the on-phone count', () => {
+  const msg = st => AI.describe(Object.assign(new Error('x'), { status: st }));
+  assert.equal(msg(503), 'AI counting is not switched on yet - add the OpenAI key in AgronicaWorld');
+  assert.match(msg(429), /wait 60 s/); assert.match(AI.describe({ status: 429, retryAfter: 42 }), /wait 42 s/);
+  assert.match(msg(413), /too big/); assert.match(msg(415), /image type/); assert.match(msg(401), /rejected the app key/);
+  assert.match(msg(400), /rejected the request/); assert.match(msg(502), /on-phone count is still here/);
+  assert.match(msg(0), /on-phone count is still here/); assert.match(msg(0), /Could not reach AgronicaWorld/);
+  assert.match(AI.describe({ status: 400, message: 'coverPct must be 0-100' }), /coverPct/);
+});
+t('v4: AI request carries the documented multipart fields and nothing else', () => {
+  const seen = {};
+  global.FormData = function () { this.append = (k, v) => { (seen[k] = seen[k] || []).push(v); }; };
+  const fd = AI.form({ size: 10 }, { deviceId: 'd1', sessionId: 's1', block: 'B7', variety: 'A16', row: '4', treeFrom: 7, treeTo: 7,
+    coverPct: 10, rowSp: 8, treeSp: 4, nisG: 7.5, tree: '9', preset: 'x' });
+  assert.ok(fd);
+  assert.deepEqual(Object.keys(seen).sort(), ['block', 'coverPct', 'deviceId', 'image', 'nisG', 'row', 'rowSp', 'sessionId', 'treeFrom', 'treeTo', 'treeSp', 'variety'].sort());
+  assert.equal(seen.treeFrom[0], '7'); assert.equal(seen.coverPct[0], '10');
+  // blank optional fields are left out entirely, so the server's range checks never see an empty string
+  const seen2 = {}; global.FormData = function () { this.append = (k, v) => { seen2[k] = v; }; };
+  AI.form({ size: 1 }, { deviceId: 'd1', block: '', variety: null, row: '', treeFrom: NaN, coverPct: 0 });
+  assert.deepEqual(Object.keys(seen2).sort(), ['coverPct', 'deviceId', 'image'].sort());
+  assert.equal(AI.EDGE, 1600); assert.equal(AI.EDGE_RETRY, 1200); assert.equal(AI.QUALITY, 0.85);
+});
+t('v4: AI spend counter and the "don\'t show again" flag persist locally', () => {
+  AI.resetStats();
+  assert.deepEqual(AI.stats().calls, 0); assert.equal(AI.noticeSeen(), false);
+  AI.bump({ count: 9 }); AI.bump({ count: 4 });
+  assert.equal(AI.stats().calls, 2); assert.ok(AI.stats().cents >= 6, 'about 3c a call: ' + AI.stats().cents);
+  AI.setNoticeSeen(true); assert.equal(AI.noticeSeen(), true); AI.setNoticeSeen(false); assert.equal(AI.noticeSeen(), false);
+  AI.resetStats(); assert.equal(AI.stats().calls, 0);
 });
 console.log(`\n${n} logic tests passed`);

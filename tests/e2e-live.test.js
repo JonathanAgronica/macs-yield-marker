@@ -31,7 +31,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const cfg = await page.evaluate(() => ({ url: YM_CONFIG.INGEST_URL, ver: YM_CONFIG.APP_VERSION, key: !!YM_CONFIG.INGEST_KEY, enabled: Upload.enabled() }));
   console.log('   live config: ' + cfg.url + ' / ' + cfg.ver + ' / key ' + (cfg.key ? 'present' : 'MISSING') + ' / upload ' + (cfg.enabled ? 'ON' : 'OFF'));
   assert.equal(cfg.enabled, true, 'upload is enabled on the live site');
-  assert.equal(cfg.ver, 'v3', 'live app version');
+  assert.equal(cfg.ver, 'v4', 'live app version');
 
   const deviceId = await page.evaluate(() => Upload.deviceId());
   console.log('   ' + (prev ? 'reusing' : 'new') + ' test deviceId: ' + deviceId);

@@ -1,5 +1,8 @@
 /* Photo Count screen: capture / choose a photo (or live camera), tune the nut filters with a live mask preview,
-   tap to add / remove, yield estimate, save as a mark. "AI count" posts to YM_CONFIG.AI_COUNT_URL (off while blank).
+   tap to add / remove, yield estimate, save as a mark.
+   "AI count" sends a downscaled JPEG to YM_CONFIG.AI_COUNT_URL (AgronicaWorld, off while blank) for a second
+   opinion, draws the returned detections on top, and lets the user correct them by tapping. Both counts are shown
+   side by side and the selected one (on-phone or AI, corrected) is what the saved mark and the upload carry.
 
    Performance model (this is what keeps slider drags smooth on a phone):
      - the photo is decoded once, EXIF-corrected, then kept as a downscaled working copy (<= 1280 px long edge);
@@ -41,7 +44,10 @@
     runGen: 0,                 // detection identity: bumps on every pass, so only the newest result is painted
     mask: null, maskW: 0, maskH: 0, maskVersion: 0,   // mask from the pass that produced the current count
     lastPhoto: null,           // the decoded, EXIF-corrected full photo (for export / AI count)
-    stream: null, live: false, tag: null, saving: false, editingName: false
+    stream: null, live: false, tag: null, saving: false, editingName: false,
+    // AI second opinion (aicount.js does the downscale + POST): dets are in working-copy pixels like st.auto
+    ai: null, aiDets: [], aiRemoved: {}, aiAdded: [], aiSeq: 0, aiBusy: false, aiNote: '', aiWarned: false, costDismissed: false,
+    saveSrc: 'phone'           // which count the mark saves: 'phone' | 'ai'
   };
   var o = load();
   function defaults() {
@@ -103,6 +109,7 @@
     st.W = work.w; st.H = work.h; st.px = work.px;
     var pv = drawTo(src, PREVIEW); st.pw = pv.w; st.ph = pv.h; st.ppx = pv.px;
     st.auto = []; st.added = []; st.removed = {}; st.mask = null;
+    clearAi();
     // a retaken photo must not leave the previous ImageBitmap (a full-size camera frame) alive
     if (prev && prev !== src && prev.close) { try { prev.close(); } catch (e) {} }
     var t = st.tag || {};
@@ -110,6 +117,158 @@
     $('phTag').textContent = (t.pos ? 'GPS ' + t.pos.lat.toFixed(5) + ', ' + t.pos.lon.toFixed(5) + ' (±' + Math.round(t.pos.acc) + ' m)' : 'No GPS fix - press START on the Mark tab to tag photos') + ' · row ' + (t.row || '-') + ' · tree ' + (t.tree || '-');
     draw();               // paint the original straight away so the screen never sits blank
     analyse(true);        // then detect at full working size
+  }
+
+  // ---------- AI second opinion (server-side model) ----------
+  // The on-phone pipeline above is never touched by this: the AI result is a second, independent list of circles the
+  // user can correct, and either list can be the one that gets saved. The photo is downscaled to 1600 px / q0.85 in
+  // aicount.js before it leaves the phone; no API key is involved here beyond the public X-Ingest-Key.
+  function aiCfg() { return window.YM_CONFIG || {}; }
+  function aiEnabled() { return !!aiCfg().AI_COUNT_URL; }
+  function aiReady() { return !!(st.ai && st.ai.status === 'ok'); }
+  function srcIsAi() { return st.saveSrc === 'ai' && aiReady(); }
+  function aiNuts() {
+    var r = st.aiRemoved || {};
+    return (st.aiDets || []).filter(function (n, i) { return !r[i]; }).concat(Array.isArray(st.aiAdded) ? st.aiAdded : []);
+  }
+  function activeCount() { return srcIsAi() ? aiNuts().length : nuts().length; }
+  function clearAi() {
+    st.ai = null; st.aiDets = []; st.aiRemoved = {}; st.aiAdded = []; st.saveSrc = 'phone'; st.aiSeq++;
+    var b = $('phAiBusy'); if (b) b.classList.add('hidden');
+    var bg = $('phAiBadge'); if (bg) bg.classList.add('hidden');
+    var r = $('phAiRes'); if (r) { r.classList.add('hidden'); r.innerHTML = ''; }
+    aiNote(''); renderSrc();
+  }
+  function aiNote(t) { st.aiNote = t || ''; var e = $('phAiNote'); if (e) e.textContent = st.aiNote; }
+  function setAiBusy(on) {
+    st.aiBusy = !!on;
+    var b = $('phAiBusy'); if (b) b.classList.toggle('hidden', !on);
+    var btn = $('phAi');
+    if (btn) {
+      btn.classList.toggle('busy', !!on);
+      btn.disabled = !!on || !aiEnabled();     // enabled as soon as config has a URL: a tap without a photo explains itself
+      var t = btn.querySelector && btn.querySelector('span'); if (t) t.textContent = on ? 'Asking AI...' : 'AI count';
+      btn.setAttribute('aria-busy', on ? 'true' : 'false');
+    }
+  }
+  // normalised detections (x,y 0..1 of the frame; r a fraction of the WIDTH) -> working-copy pixels
+  function mapDets(list) {
+    return (list || []).map(function (d) {
+      return { x: clamp01(d.x) * st.W, y: clamp01(d.y) * st.H, r: Math.max(2, clamp01(d.r) * st.W) };
+    });
+  }
+  function clamp01(v) { v = +v; return isFinite(v) ? (v < 0 ? 0 : v > 1 ? 1 : v) : 0; }
+  function aiMeta() {
+    var t = st.tag || {}, s = window.App ? App.state() : {}, tf = +t.tree || 0;
+    return { deviceId: window.Upload && window.Upload.deviceId ? window.Upload.deviceId() : null,
+      sessionId: (s.cur || 'manual'), block: t.block || s.block || '', variety: t.variety || s.variety || '',
+      row: t.row != null ? String(t.row) : String(s.row || ''), treeFrom: tf > 0 ? tf : null, treeTo: tf > 0 ? tf : null,
+      coverPct: +o.coverPct, rowSp: +o.rowSp, treeSp: treeSp(), nisG: +o.nisG };
+  }
+  function renderSrc() {
+    var bar = $('phSrc'); if (!bar) return;
+    var show = aiReady();
+    bar.classList.toggle('hidden', !show);
+    $('phSrcPhone').textContent = nuts().length;
+    $('phSrcAi').textContent = aiReady() ? aiNuts().length : 0;
+    [].forEach.call(bar.querySelectorAll('[data-src]'), function (b) {
+      var on = b.getAttribute('data-src') === (srcIsAi() ? 'ai' : 'phone');
+      b.classList.toggle('on', on); b.setAttribute('aria-pressed', on);
+    });
+    var lab = $('phSaving'); if (lab) lab.textContent = srcIsAi() ? 'Saving the AI count' : 'Saving the on-phone count';
+  }
+  // compact badge on the photo itself, so the AI count + confidence sit next to the circles they describe
+  function renderAiBadge() {
+    var b = $('phAiBadge'); if (!b) return;
+    var on = aiReady();
+    b.classList.toggle('hidden', !on);
+    if (!on) return;
+    $('phAiBadgeN').textContent = aiNuts().length;
+    $('phAiBadgeC').textContent = aiBusy2() ? 'updating...' : (st.ai.confidence != null ? Math.round(st.ai.confidence * 100) + '%' : '');
+    b.classList.toggle('off', !srcIsAi());
+  }
+  function aiBusy2() { return !!st.aiBusy; }
+  function editLine() {
+    if (!st.ai) return '';
+    var a = st.ai, live = aiNuts().length, d = live - a.count;
+    if (!d) return '';
+    return ' · AI found ' + a.count + ', you corrected ' + (d > 0 ? '+' : '') + d;
+  }
+  function renderAiResult() {
+    var box = $('phAiRes'); if (!box) return;
+    if (!aiReady()) { box.classList.add('hidden'); box.innerHTML = ''; renderAiBadge(); return; }
+    renderAiBadge();
+    var a = st.ai, conf = a.confidence == null ? '' : Math.round(a.confidence * 100) + '% confidence';
+    var meta = [a.model ? esc(a.model) : '', conf, a.sent ? a.sent.w + 'x' + a.sent.h + ' (sent)' : ''].filter(Boolean).join(' · ');
+    var est = [], live = aiNuts().length;
+    if (a.nutsPerTree != null) est.push(a.nutsPerTree.toLocaleString() + ' nuts/tree');
+    if (a.kgHa != null) est.push(a.kgHa.toLocaleString() + ' kg/ha');
+    box.innerHTML = '<div class="ai-head"><b id="phAiN">' + live + '</b><span>nuts</span>' + (conf ? '<em>' + conf + '</em>' : '') +
+      (est.length ? '<em>' + esc(est.join(' · ')) + '</em>' : '') + '</div>' +
+      '<div class="ai-sub">' + esc(meta) + '<span id="phAiEdits">' + editLine() + '</span></div>' +
+      (a.note ? '<p class="ai-note">' + esc(a.note) + '</p>' : '') +
+      '<div class="ai-hint">Tap a circle to remove it, tap a nut to add one - the corrected AI count is what gets saved when "AI" is selected above.</div>';
+    box.classList.remove('hidden');
+  }
+  function applyAi(r) {
+    st.ai = { status: 'ok', count: r.count, confidence: r.confidence, model: r.model, note: r.note, nutsPerTree: r.nutsPerTree,
+      kgHa: r.kgHa, sent: r.sent, retried: r.retried, at: r.at };
+    st.aiDets = mapDets(r.detections); st.aiRemoved = {}; st.aiAdded = [];
+    st.saveSrc = 'ai';
+    aiNote(r.retried ? 'Photo was too big for the AI server - a smaller copy went through.' : '');
+    renderAiResult(); renderSrc(); draw();
+    try { App.beep(1200, 70); App.vib(20); } catch (e) {}
+  }
+  function failAi(e) {
+    st.ai = { status: 'err', error: e, at: Date.now() };
+    st.aiDets = []; st.aiRemoved = {}; st.aiAdded = []; st.saveSrc = 'phone';
+    var msg = window.AICount ? window.AICount.describe(e) : String((e && e.message) || e);
+    aiNote(msg); renderSrc(); draw();
+    if (App.toast) App.toast(msg, 5200);
+  }
+  function runAi() {
+    var c = aiCfg(), url = c.AI_COUNT_URL, AC = window.AICount;
+    if (!aiEnabled()) { App.toast('AI counting is not switched on yet - add the OpenAI key in AgronicaWorld', 4200); return; }
+    if (!st.lastPhoto) { App.toast('Take a photo first'); return; }
+    if (st.aiBusy) return;
+    if (!AC) { App.toast('AI count is not available in this version'); return; }
+    // first-time spend notice: show the cost line and ask for one more tap, no modal dialog
+    if (!AC.noticeSeen() && !st.aiWarned) { st.aiWarned = true; st.costDismissed = false; showCost(true); aiNote('About 3c per photo, charged to Agronica\'s OpenAI account. Tap AI count again to go ahead.'); return; }
+    var seq = ++st.aiSeq, gen = st.gen, photo = st.lastPhoto;
+    st.aiDets = []; st.aiRemoved = {}; st.aiAdded = []; st.saveSrc = 'phone';
+    st.ai = { status: 'busy' };
+    setAiBusy(true); aiNote('Asking the AI model - the on-phone count below still works.'); renderSrc(); draw();
+    AC.count({ url: url, key: c.INGEST_KEY, photo: photo, meta: aiMeta(), onStage: function (stage) {
+      if (seq !== st.aiSeq) return;
+      if (stage === 'retry') aiNote('Too big - shrinking the photo and trying once more...');
+    } }).then(function (res) {
+      if (seq !== st.aiSeq || gen !== st.gen) return;      // a different photo (or a new AI call) landed meanwhile
+      applyAi(res);
+    }, function (err) {
+      if (seq !== st.aiSeq || gen !== st.gen) return;
+      failAi(err);
+    }).then(function () {
+      if (seq === st.aiSeq) { setAiBusy(false); syncAi(true); }
+    });
+  }
+  // cost line + device counter: shown before the first AI call until "don't show again" is ticked
+  function showCost(on) {
+    var box = $('phAiCost'); if (!box) return;
+    var seen = window.AICount ? window.AICount.noticeSeen() : true;
+    box.classList.toggle('hidden', !(on && !seen && !st.costDismissed));
+  }
+  function syncAi(keepNote) {
+    if (!keepNote) aiNote(st.aiNote);
+    setAiBusy(st.aiBusy);
+    var st8 = window.AICount, s = st8 ? st8.stats() : { calls: 0, cents: 0 };
+    var cnt = $('phAiCount');
+    if (cnt) {
+      cnt.textContent = s.calls ? 'AI counts from this phone: ' + s.calls + ' (about ' + s.cents + 'c)' : 'No AI counts from this phone yet';
+      cnt.classList.toggle('hidden', !aiEnabled());
+    }
+    showCost(aiEnabled());
+    renderSrc();
+    if (!aiEnabled()) aiNote('AI count (server-side model on AgronicaWorld) is off - set AI_COUNT_URL in config.js. The on-phone filters work as normal.');
   }
 
   // ---------- the detection pass ----------
@@ -198,6 +357,19 @@
     sx = sx || 1; sy = sy || 1;
     st.auto.forEach(function (n, i) { if (st.removed[i]) return; circ(ctx, { x: n.x * sx, y: n.y * sy, r: n.r * sx }, '#22ff88', lw); });
     st.added.forEach(function (n) { circ(ctx, { x: n.x * sx, y: n.y * sy, r: n.r * sx }, '#00e5ff', lw); });
+    // AI detections in violet (dashed = the model's, solid = yours), so the two opinions never look like one list
+    if (aiReady()) {
+      var dim = !srcIsAi() && aiNuts().length > 0;
+      ctx.save();
+      if (dim) ctx.globalAlpha = 0.55;
+      st.aiDets.forEach(function (n, i) {
+        if (st.aiRemoved[i]) return;
+        ctx.setLineDash([6, 5]); circ(ctx, { x: n.x * sx, y: n.y * sy, r: n.r * sx }, '#c77dff', lw);
+      });
+      ctx.setLineDash([]);
+      st.aiAdded.forEach(function (n) { circ(ctx, { x: n.x * sx, y: n.y * sy, r: n.r * sx }, '#e0aaff', lw); });
+      ctx.restore();
+    }
   }
   var drawQueued = false;
   function draw() {
@@ -218,7 +390,7 @@
     else ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, bw, bh);
     ctx.setTransform(q, 0, 0, q, 0, 0);
-    var lw = Math.max(1.4, st.W / 320), N = nuts().length;
+    var lw = Math.max(1.4, st.W / 320), N = activeCount();
     if (st.view === 'original') {
       paintImage(ctx, st.W, st.H);
       drawMarkup(ctx, lw);
@@ -243,15 +415,26 @@
       paintMask(ctx, st.W, st.H);
       drawMarkup(ctx, lw);
     }
-    $('phN').textContent = N; $('phNBadge').textContent = N;
+    // big number = the count that will be saved; the photo badge (left) = on-phone, the AI badge (right) = AI
+    $('phN').textContent = N;
+    var lbl = $('phNLbl'); if (lbl) { lbl.textContent = srcIsAi() ? 'nuts · AI' : (aiReady() ? 'nuts · on-phone' : 'nuts'); lbl.classList.toggle('ai', srcIsAi()); }
+    $('phNBadge').textContent = nuts().length;
+    var bl = $('phBadgeLbl'); if (bl) bl.textContent = aiReady() ? 'on-phone' : 'nuts';
     $('phNsub').textContent = '(' + (st.preview ? 'fast preview' : 'auto') + ' ' + st.auto.length + (st.added.length ? ', +' + st.added.length : '') +
       (Object.keys(st.removed).length ? ', −' + Object.keys(st.removed).length : '') + (o.topN ? ', best ' + o.topN : '') + ')';
+    renderSrc();
+    var an = $('phAiN'); if (an && aiReady()) an.textContent = aiNuts().length;
+    var ed = $('phAiEdits'); if (ed && aiReady()) ed.textContent = editLine();
+    renderAiBadge();
     calc();
   }
   var calcCache = '';
   function calc() {
-    var e = PC.yieldEstimate(nuts().length, { coverPct: o.coverPct, rowSp: o.rowSp, treeSp: treeSp(), nisG: o.nisG }), r = PC.ratingFromTHa(e.tHa), rt = Y.RATINGS[r - 1];
-    var html = '<div class="sr"><span>Nuts per tree</span><b>' + e.nutsPerTree + '</b></div><div class="sr"><span>Trees per ha</span><b>' + e.treesHa + '</b></div>' +
+    var n = activeCount();
+    var e = PC.yieldEstimate(n, { coverPct: o.coverPct, rowSp: o.rowSp, treeSp: treeSp(), nisG: o.nisG }), r = PC.ratingFromTHa(e.tHa), rt = Y.RATINGS[r - 1];
+    var src = srcIsAi() ? 'AI count' : 'on-phone count';
+    var html = '<div class="sr"><span>Count used (' + src + ')</span><b>' + n + '</b></div>' +
+      '<div class="sr"><span>Nuts per tree</span><b>' + e.nutsPerTree + '</b></div><div class="sr"><span>Trees per ha</span><b>' + e.treesHa + '</b></div>' +
       '<div class="sr big"><span>Estimated yield</span><b>' + e.kgHa.toLocaleString() + ' kg/ha · ' + e.tHa + ' t/ha NIS</b></div>' +
       '<div class="sr"><span>Rating</span><b><i class="dot" style="background:' + rt.color + '"></i>' + r + ' ' + rt.label + '</b></div>';
     if (html !== calcCache) { calcCache = html; $('phOut').innerHTML = html; }   // no DOM churn (and no flicker) when nothing changed
@@ -263,9 +446,18 @@
   // One tap = one nut. The canvas click handler is the only entry point (no touchstart+click double fire),
   // taps are ignored while a detection pass is running, and a short per-point lockout swallows the second
   // click of a double tap before it can hit a newly drawn circle.
+  // A tap always edits the count that would be saved: the AI list when AI is selected, else the on-phone list.
+  // Editing the AI list does not stop the filters: the on-phone pass keeps running underneath, and switching back to
+  // "on-phone" keeps whatever that pass last found.
   var lastTap = { t: 0, x: 0, y: 0 };
+  function medianR(list, fallback) {
+    var rs = list.map(function (n) { return n.r; }).sort(function (a, b) { return a - b; });
+    return rs.length ? rs[rs.length >> 1] : fallback;
+  }
   function tapCanvas(ev) {
-    if (!st.lastPhoto || st.preview || pending || st.busy) return;
+    if (!st.lastPhoto || st.aiBusy) return;
+    if (srcIsAi()) return tapAi(ev);
+    if (st.preview || pending || st.busy) return;
     var c = $('phCanvas'), b = c.getBoundingClientRect(); if (!b.width) return;
     var x = (ev.clientX - b.left) * st.W / b.width, y = (ev.clientY - b.top) * st.H / b.height;
     var now = Date.now();
@@ -277,6 +469,27 @@
     if (src === 'a') st.removed[best] = true; else if (src === 'm') st.added.splice(best, 1);
     else { var rs = st.auto.map(function (n) { return n.r; }).sort(function (a, b) { return a - b; }); st.added.push({ x: x, y: y, r: rs.length ? rs[rs.length >> 1] : (o.minR + o.maxR) / 2 }); }
     draw();
+    renderSrc();
+  }
+  function tapAi(ev) {
+    var c = $('phCanvas'), b = c.getBoundingClientRect(); if (!b.width) return;
+    var x = (ev.clientX - b.left) * st.W / b.width, y = (ev.clientY - b.top) * st.H / b.height;
+    var now = Date.now();
+    if (now - lastTap.t < 90 && Math.hypot(x - lastTap.x, y - lastTap.y) < Math.max(6, st.W / 60)) return;
+    lastTap = { t: now, x: x, y: y };
+    var best = -1, bd = 1e9, src = null;
+    st.aiDets.forEach(function (n, i) { if (st.aiRemoved[i]) return; var d = Math.hypot(n.x - x, n.y - y); if (d < Math.max(n.r, 8) * 1.3 && d < bd) { bd = d; best = i; src = 'a'; } });
+    st.aiAdded.forEach(function (n, i) { var d = Math.hypot(n.x - x, n.y - y); if (d < Math.max(n.r, 8) * 1.3 && d < bd) { bd = d; best = i; src = 'm'; } });
+    if (src === 'a') st.aiRemoved[best] = true; else if (src === 'm') st.aiAdded.splice(best, 1);
+    else st.aiAdded.push({ x: x, y: y, r: medianR(st.aiDets, Math.max(6, st.W / 40)) });
+    draw();
+    renderAiResult();       // the card is a live readout of the corrected count, not a snapshot of the reply
+    calc();
+  }
+  function setSrc(src) {
+    if (src === 'ai' && !aiReady()) return;
+    st.saveSrc = src === 'ai' ? 'ai' : 'phone';
+    renderSrc(); draw();
   }
 
   // ---------- presets ----------
@@ -335,7 +548,8 @@
   // ---------- screen lifecycle ----------
   function tagNow(name) {
     var p = App.lastPos(), s = App.state();
-    return { ts: Date.now(), pos: p ? { lat: p.lat, lon: p.lon, acc: p.acc } : null, row: String(s.row), tree: String(Math.floor(s.trees) + 1), name: name || '' };
+    return { ts: Date.now(), pos: p ? { lat: p.lat, lon: p.lon, acc: p.acc } : null, row: String(s.row), tree: String(Math.floor(s.trees) + 1),
+      block: s.block || '', variety: s.variety || '', name: name || '' };
   }
   function loadFile(file) {
     if (!file) return;
@@ -356,12 +570,21 @@
     if (!st.lastPhoto) { App.toast('Take a photo first'); return; }
     if (st.saving) return;
     st.saving = true;
-    var res = calc(), t = st.tag || {}, s = App.state();
-    var f = { rating: Y.RATINGS[res.r - 1].id, photoCount: nuts().length, estNutsPerTree: res.e.nutsPerTree, estKgHa: res.e.kgHa,
+    var res = calc(), t = st.tag || {}, s = App.state(), usingAi = srcIsAi();
+    var f = { rating: Y.RATINGS[res.r - 1].id, photoCount: activeCount(), estNutsPerTree: res.e.nutsPerTree, estKgHa: res.e.kgHa,
       row: t.row || String(s.row), tree: t.tree || '', photoFilter: o.filter, photoPreset: o.preset || '' };
+    // which count the mark holds, plus what the AI said (so a block can be recalibrated against both later)
+    f.photoCountSrc = usingAi ? 'ai' : 'phone';
+    if (aiReady()) {
+      f.aiCount = st.ai.count; f.aiModel = st.ai.model || '';
+      if (st.ai.confidence != null) f.aiConfidence = Math.round(st.ai.confidence * 100) / 100;
+      f.aiPhotoCount = aiNuts().length;
+      if (usingAi) { if (st.ai.nutsPerTree != null) f.aiNutsPerTree = st.ai.nutsPerTree; if (st.ai.kgHa != null) f.aiKgHa = st.ai.kgHa; }
+      f.phoneCount = nuts().length;
+    }
     var m = App.addMark(f, { pos: t.pos || App.lastPos() });
     st.saving = false;
-    if (m) { App.toast('Saved photo estimate: ' + res.e.tHa + ' t/ha (' + Y.RATINGS[res.r - 1].label + ')'); App.beep(900, 90); App.vib(40); }
+    if (m) { App.toast('Saved ' + (usingAi ? 'AI' : 'on-phone') + ' photo estimate: ' + activeCount() + ' nuts, ' + res.e.tHa + ' t/ha (' + Y.RATINGS[res.r - 1].label + ')', 4200); App.beep(900, 90); App.vib(40); }
     else App.toast('No GPS fix - start GPS on the Mark tab, then save');
   }
 
@@ -383,7 +606,7 @@
     $('phHueMin').disabled = $('phHueMax').disabled = !hueOn;
     $('phHueMin').closest('.field').style.opacity = $('phHueMax').closest('.field').style.opacity = hueOn ? 1 : 0.45;
     $('phCover').value = o.coverPct; $('phNis').value = o.nisG; $('phRowSp').value = o.rowSp; if (!$('phTreeSp').dataset.touched) $('phTreeSp').value = App.spacing();
-    var ai = (window.YM_CONFIG || {}).AI_COUNT_URL; $('phAi').disabled = !ai; $('phAiNote').textContent = ai ? '' : 'AI count (server-side model on AgronicaWorld) is coming - disabled until Agronica switches it on.';
+    syncAi(true);
     fillPresetSelect();
   }
 
@@ -437,24 +660,27 @@
   };
   $('phReset').onclick = function () { st.added = []; st.removed = {}; draw(); };
   $('phSave').onclick = saveMark;
-  $('phAi').onclick = function () {
-    var url = (window.YM_CONFIG || {}).AI_COUNT_URL; if (!url || !st.lastPhoto) return;
-    $('phAiNote').textContent = 'Sending photo to AgronicaWorld...';
-    $('phCanvas').toBlob(function (b) {
-      if (!b) return;
-      var fd = new FormData(); fd.append('photo', b, 'photo.jpg'); fd.append('meta', JSON.stringify({ deviceId: window.Upload && window.Upload.deviceId(), tag: st.tag, filter: o.filter, preset: o.preset }));
-      var gen = st.gen;
-      fetch(url, { method: 'POST', body: fd }).then(function (r) { return r.json(); }).then(function (j) {
-        if (gen !== st.gen) return;                     // a different photo landed while the model was thinking
-        if (Array.isArray(j.nuts)) { st.auto = j.nuts; st.removed = {}; st.added = []; draw(); $('phAiNote').textContent = 'AI count: ' + j.nuts.length; } else $('phAiNote').textContent = 'AI count: ' + (j.count != null ? j.count : 'no result');
-      }).catch(function (e) { $('phAiNote').textContent = 'AI count failed: ' + e.message; });
-    }, 'image/jpeg', 0.85);
+  $('phAi').onclick = runAi;
+  $('phAiDismiss').onclick = function () {
+    var c = $('phAiDontShow');
+    if (c && c.checked && window.AICount) window.AICount.setNoticeSeen(true);
+    st.costDismissed = true; showCost(false);
+    if (!(window.AICount && window.AICount.noticeSeen())) aiNote('About 3c per photo, charged to Agronica\'s OpenAI account.');
   };
+  (function () { var c = $('phAiDontShow'); if (c) c.onchange = function () { if (this.checked && window.AICount) window.AICount.setNoticeSeen(true); }; })();
+  [].forEach.call(document.querySelectorAll('#phSrc [data-src]'), function (b) { b.onclick = function () { setSrc(b.getAttribute('data-src')); }; });
   window.Photo = {
     shown: shown, hidden: hidden,
     setImage: function (im, t) { if (t) st.tag = t; setPhoto(im); },
     count: function () { return nuts().length; },
+    activeCount: activeCount,
     auto: function () { return st.auto.slice(); },
+    ai: function () { return st.ai ? { status: st.ai.status, count: st.ai.count, confidence: st.ai.confidence, model: st.ai.model, note: st.ai.note,
+      detections: st.aiDets.slice(), nutsPerTree: st.ai.nutsPerTree, kgHa: st.ai.kgHa, sent: st.ai.sent, retried: !!st.ai.retried } : null; },
+    aiCount: function () { return aiNuts().length; },
+    aiNuts: function () { return aiNuts(); },
+    src: function (v) { if (v) setSrc(v); return st.saveSrc; },
+    runAi: runAi, aiBusy: function () { return !!st.aiBusy; },
     opts: o, run: function () { request(false); }, calc: calc,
     // test/debug hooks (also handy for a future calibration screen)
     presets: allPresets, applyPreset: applyPreset, savePreset: function (name) { var l = presets().filter(function (p) { return p.name !== name; }); l.push({ name: name, o: presetPayload() }); savePresets(l); o.preset = name; saveSet(); syncUi(); },

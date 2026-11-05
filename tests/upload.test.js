@@ -33,7 +33,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.setRequestInterception(true);
   page.on('request', r => {
     if (/\/config\.js(\?|$)/.test(r.url())) return r.respond({ status: 200, contentType: 'application/javascript',
-      body: `window.YM_CONFIG={INGEST_URL:'http://127.0.0.1:${port}/api/yield/submit',INGEST_KEY:'test-key',INGEST_URL_PLACEHOLDER:'',AI_COUNT_URL:'',FARM:'Alloway',APP_VERSION:'v3'};` });
+      body: `window.YM_CONFIG={INGEST_URL:'http://127.0.0.1:${port}/api/yield/submit',INGEST_KEY:'test-key',INGEST_URL_PLACEHOLDER:'',AI_COUNT_URL:'',FARM:'Alloway',APP_VERSION:'v4'};` });
     r.continue();
   });
   await page.goto(BASE, { waitUntil: 'networkidle0' });
@@ -59,7 +59,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   assert.equal(got.length, 1, 'expected one session POST, got ' + got.length);
   const body = got[0].j;
   assert.ok(!('session' in body), 'no nested session object');
-  assert.equal(body.deviceId.length, 36); assert.equal(body.appVersion, 'v3'); assert.equal(body.farm, 'Alloway');
+  assert.equal(body.deviceId.length, 36); assert.equal(body.appVersion, 'v4'); assert.equal(body.farm, 'Alloway');
   assert.equal(body.block, 'Block 7'); assert.equal(body.variety, 'A16'); assert.equal(body.sessionId, 'up1');
   assert.ok(!isNaN(Date.parse(body.submittedAt)));
   ['deviceId', 'appVersion', 'sessionId', 'submittedAt', 'farm', 'block', 'variety', 'contact'].forEach(k => assert.ok(k in body || k === 'contact', 'flat key ' + k));
@@ -67,6 +67,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const est = body.marks.find(m => m.treeFrom === 1);
   assert.equal(est.rating, 4); assert.equal(est.treeTo, 10); assert.equal(est.estimate, 4); assert.equal(est.row, '1');
   assert.ok(!('tree' in est), 'extra `tree` key dropped'); assert.ok(!('count' in est), 'extra `count` key dropped');
+  // v4 photo-AI fields are additive and optional: a plain mark's key set is unchanged from v3
   assert.deepEqual(Object.keys(est).sort(), ['acc', 'estimate', 'id', 'lat', 'lon', 'rating', 'row', 't', 'treeFrom', 'treeTo']);
   assert.ok(/^\d{4}-\d\d-\d\dT/.test(est.t)); assert.ok(Math.abs(est.lat + 24.98) < 0.1);
   const low = body.marks.find(m => m.rating === 2); assert.equal(low.binWeightKg, 61.5);
@@ -119,6 +120,26 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   assert.ok(/rejected the key \(401\)/.test(st6), st6);
   console.log('ok - 401 reports a bad key: "' + st6 + '"');
   mode = 'ok';
+  // 8b) v4: a photo mark carries which count it holds plus the AI second opinion, and the server sees them in the POST
+  const ai = await page.evaluate(async () => {
+    const s = App.state();
+    const m = { id: 'ai1', ts: Date.now(), lat: -24.98, lon: 152.38, acc: 3, rating: 'high', session: 'up4', block: 'Block 7', variety: 'A16', row: '5',
+      photoCount: 11, photoCountSrc: 'ai', aiCount: 9, aiPhotoCount: 11, phoneCount: 38, aiKgHa: 1172, aiNutsPerTree: 90, aiConfidence: 0.87, aiModel: 'gpt-4.1-mini',
+      estNutsPerTree: 110, estKgHa: 1432, photoFilter: 'green', photoPreset: '' };
+    s.sessions.up4 = { id: 'up4', block: 'Block 7', variety: 'A16', start: Date.now() }; s.cur = 'up4'; s.marks.push(m); App.save();
+    const up = Upload.markPayload(m);
+    Upload.enqueue(m, s.sessions.up4); Upload._q().next = 0; Upload._q().fails = 0;
+    await Upload.flush();
+    return { up };
+  });
+  const posted = got[got.length - 1].j.marks.find(x => x.id === 'ai1');
+  assert.ok(posted, 'AI photo mark posted');
+  assert.equal(posted.photoCount, 11); assert.equal(posted.photoCountSrc, 'ai'); assert.equal(posted.aiCount, 9); assert.equal(posted.aiPhotoCount, 11);
+  assert.equal(posted.aiKgHa, 1172); assert.equal(posted.aiNutsPerTree, 90); assert.equal(posted.aiConfidence, 0.87); assert.equal(posted.aiModel, 'gpt-4.1-mini');
+  assert.equal(posted.estKgHa, 1432); assert.ok(!('phoneCount' in posted), 'phoneCount stays on the phone');
+  const plain = await page.evaluate(() => Upload.markPayload({ id: 'p', ts: Date.now(), lat: 1, lon: 2, rating: 'low', photoCount: 20, estKgHa: 900 }));
+  assert.ok(!('photoCountSrc' in plain) && !('aiCount' in plain), 'a v3 photo mark is unchanged: ' + Object.keys(plain));
+  console.log('ok - v4 photo mark posts photoCountSrc/aiCount/aiPhotoCount/aiKgHa/aiNutsPerTree/aiConfidence/aiModel; a v3 mark is byte-identical');
   // 9) bin weight posted to /api/yield/bins, with sessionId/binId/lat/lon
   await page.evaluate(async () => {
     const s = App.state(), m = { id: 'b1', ts: Date.now(), lat: -24.97, lon: 152.38, kg: 412.5, session: 'up1', block: 'Block 7', count: 9 };

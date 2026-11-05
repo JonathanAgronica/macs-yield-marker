@@ -9,6 +9,10 @@ Built for **driving down the rows**: huge one-tap rating buttons with beep / vib
 a GPS tree counter that prompts for a 1-5 estimate every 10 trees, and a heat map of each block. Data is exported as
 KML / CSV, and uploads to AgronicaWorld for block heat mapping (queued offline, with matched/unmatched feedback).
 
+**v4:** the Photo tab's **AI count** is live - a server-side OpenAI vision count from AgronicaWorld shown as a
+second opinion beside the on-phone filters, with tap correction, cost notice and a per-phone counter. See
+[AI count (v4)](#ai-count-v4).
+
 ## Features
 
 - **Session start/stop** with GPS (`watchPosition`, track point every 2 s), block name, variety
@@ -49,8 +53,11 @@ KML / CSV, and uploads to AgronicaWorld for block heat mapping (queued offline, 
   Yield **estimate**: nuts in photo / (% of canopy in photo) = nuts per tree; x trees/ha (10 000 / (row spacing x tree
   spacing)) x nut-in-shell weight (default 7.5 g - calibrate by weighing 100 nuts from the block) = kg/ha and t/ha. Saved
   as a mark with `photoCount`, `estNutsPerTree`, `estKgHa`, `photoFilter`, `photoPreset` and a rating from t/ha
-  (<0.5 = 1, 0.5-2 = 2, 2-3.5 = 3, 3.5-5 = 4, >=5 = 5). **AI count** is still a placeholder (`AI_COUNT_URL` in
-  `config.js`, disabled while blank; no API keys in this static app).
+  (<0.5 = 1, 0.5-2 = 2, 2-3.5 = 3, 3.5-5 = 4, >=5 = 5).
+
+- **AI count (v4) - a second opinion next to the on-phone filters.** The **AI count** button sends the photo to the
+  AgronicaWorld vision endpoint (`AI_COUNT_URL`, server-side OpenAI model - **no API key ever lives in this app**) and
+  draws what the model found as violet circles on the same photo. See "AI count" below for the contract, cost and limits.
 
   **Performance:** the photo is decoded once, EXIF-corrected, and kept as a working copy of at most 1280 px on the long
   edge. While a slider moves, detection runs on a ~480 px preview copy, coalesced to **one pass per animation frame**
@@ -133,12 +140,62 @@ the queue code is in place for when it does.
 CORS on the ingest allows only `Origin: https://jonathanagronica.github.io`, so a real fetch test has to run from the
 live site (`tests/e2e-live.test.js`), not localhost.
 
+## AI count (v4)
+
+A second opinion alongside the on-phone filters. Press **AI count** on the Photo tab; the phone shows a spinner and
+"Asking AI...", uploads a downscaled copy of the photo to AgronicaWorld, then draws the model's detections as **violet
+dashed circles** over the photo. The **on-phone filters never stop working**: both counts are shown side by side
+(`On-phone 38` / `AI 9`) and you pick which one the mark saves. Tap a violet circle to remove it or tap a nut to add one -
+the *corrected* AI count is what goes into the mark and the upload.
+
+**Endpoint** `POST https://170-64-148-102.sslip.io/api/yield/ai-count` (set in `config.js` as `AI_COUNT_URL`; blank
+disables the button and leaves the rest of the app untouched).
+
+| | |
+|---|---|
+| Headers | `X-Ingest-Key: <INGEST_KEY from config.js>`, `Origin: https://jonathanagronica.github.io` |
+| Body | `multipart/form-data`: `image` = JPEG/PNG/WebP, the capture downscaled on the phone to **1600 px long edge, quality 0.85** (<= 6 MB image, <= 8 MB body) |
+| Optional fields | `deviceId` (UUID), `sessionId`, `block`, `variety`, `row`, `treeFrom` + `treeTo` (together, `treeTo >= treeFrom`), `coverPct` (0-100), `rowSp`, `treeSp` (0.5-50 m), `nisG` |
+| Response | `{ ok, count, confidence, detections: [{x,y,r}] (0..1; r is a fraction of width, omitted above 500 nuts), nutsPerTree (null without tree numbers), kgHa (null unless coverPct + rowSp + treeSp), model, note }` |
+| Errors | 400 names the bad field, 413 too big, 415 wrong content type, 429 + `Retry-After`, 502 OpenAI failure, 503 no key |
+| Limits | 30 calls / device / hour, 60 / IP / hour |
+
+**Cost:** about **3.1 US cents per photo** on the default model (~9c at around 500 detected nuts); cheaper models about
+**0.3c**. It is charged to **Agronica's OpenAI account**, not to the phone. Because of that the app:
+
+- shows a one-off plain-language line before the first call - *"About 3c per photo, charged to Agronica's OpenAI
+  account"* - with **don't show again** (remembered on the phone), and asks for a second tap the first time;
+- keeps a **running counter of AI counts from this phone** and the running cents, under the button and in storage
+  (`myl-ai-stats-v1`), so nobody is surprised by spend.
+
+**Behaviour, including when things go wrong:**
+
+- **503** (no OpenAI key on the server yet, the current live state) - *"AI counting is not switched on yet - add the
+  OpenAI key in AgronicaWorld"*. The on-phone count stays exactly where it was.
+- **429** - *"Too many AI counts - wait N s, or carry on with the on-phone count"* (`Retry-After` when the server
+  exposes it, otherwise the seconds named in the error text, otherwise 60 s).
+- **413** - the photo is retried **once**, smaller (1200 px, quality 0.8).
+- **502 / network / timeout** - *"...the on-phone count is still here"*; nothing is lost and the busy state clears.
+- The AI result is dropped if a different photo is loaded while the model is thinking (generation counter), and a
+  second tap while it is busy is ignored.
+
+**Mark + upload:** the mark's `photoCount` is the count you selected (corrected AI count when AI is selected), and the
+mark also records `photoCountSrc` (`phone` | `ai`), `aiCount` (raw model count), `aiPhotoCount` (corrected), and, when
+available, `aiKgHa`, `aiNutsPerTree`, `aiConfidence`, `aiModel` and `phoneCount`. Those AI fields are optional and
+additive: uploads from v3 marks are unchanged. Estimate on the card: the AI card shows the server's own
+`nutsPerTree`/`kgHa`; the yield panel below recomputes from the count you selected with your block's cover %, spacings
+and NIS weight, so a tap correction moves the saved kg/ha immediately.
+
+`aicount.js` holds the downscale, the POST, the error wording, and the spend bookkeeping; `photo.js` owns the UI state
+(overlay, side-by-side selector, save). Tests stub the endpoint - `tests/ai.test.js` never touches the real one.
+
 ## Files
 
 `index.html`, `style.css` (shared Agronica style) + `yield.css`, `yield.js` (ratings, colours, KML/CSV, merge, interpolation, summary),
 `ymap.js` (Leaflet map + IDW heat layer), `app.js` (session, GPS, rows/trees, prompts, pad, export/import), `photocount.js`
 (the nine-filter detector, Otsu, FRST circle finder and yield maths - pure, no canvas, so Node tests run it directly),
-`photo.js` (Photo tab: decode/EXIF, preview + full passes, mask painting, taps, presets, camera lifecycle), `upload.js`,
+`photo.js` (Photo tab: decode/EXIF, preview + full passes, mask painting, taps, presets, camera lifecycle, AI overlay),
+`aicount.js` (AI count: 1600 px downscale, multipart POST, error wording, spend counter), `upload.js`,
 `config.js`, `extras.js` (About, Macca, ads), `sw.js`, `manifest.json`, `ads.json`; `tests/synth.js` is the synthetic
 canopy generator used by the pure-logic tests.
 
@@ -152,6 +209,9 @@ python3 -m http.server 8231 &
 NODE_PATH=/path/to/node_modules(puppeteer-core, @xmldom/xmldom) node tests/logic.test.js
 NODE_PATH=... node tests/ui.test.js [baseUrl] [screenshotDir]
 NODE_PATH=... node tests/upload.test.js [baseUrl]      # stub AgronicaWorld endpoint: flat schema, 1 MB/5000 caps, 400/401/429/503, bins, matched/unmatched
+NODE_PATH=... node tests/ai.test.js [baseUrl] [shotDir] # stub AI endpoint: 1600 px downscale (asserts the posted bytes),
+                                                       # detections overlay, 503/429/413-retry/502/network, tap correction,
+                                                       # saved mark + upload payload, both counts, cost notice + counter
 NODE_PATH=... node tests/e2e-live.test.js [liveUrl] [--reuse]
                                                        # LIVE end-to-end: ONE test mark through the real queue against the real
                                                        # ingest (saved in tests/.e2e-last.json; --reuse resends it, received:0)
@@ -170,10 +230,11 @@ plus a no-overlap / no-off-screen layout pass on the photo screen at 390 x 844 a
 `tests/logic.test.js` additionally runs the pure detector over a synthetic canopy suite (`tests/synth.js`): green nuts,
 brown nuts, a touching cluster, half-hidden nuts and three nut-free leaf-clutter frames, asserting sane counts, no absurd
 counts, slider effects, preset behaviour and a per-pass time budget.
-`tests/ui.test.js` and `tests/upload.test.js` stub `config.js` so a test run never posts to the live ingest.
+`tests/ui.test.js`, `tests/upload.test.js` and `tests/ai.test.js` stub `config.js` so a test run never posts to the live
+ingest or the live AI endpoint.
 Satellite tiles are stubbed locally (`tests/tile-stub.js`).
 
-## Photo Count accuracy (test photos, v3)
+## Photo Count accuracy (test photos, v3; the on-phone numbers below are unchanged in v4)
 
 Four CC photos of nuts on the tree (`tests/photos/`, credits there), run through the app at its real working size
 (1280 px long edge) with default slider positions. p1 is one sparse cluster, p2 hanging racemes on dark foliage, p3 a

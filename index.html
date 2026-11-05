@@ -143,8 +143,10 @@
           <canvas id="phCanvas" width="640" height="480"></canvas>
           <video id="phVideo" playsinline muted autoplay hidden></video>
           <div class="ph-empty">Take a photo of a section of canopy. Nuts found are circled; tap a circle to remove it, tap a nut to add one.</div>
-          <div class="ph-badge" id="phBadge"><b id="phNBadge">0</b><span>nuts</span></div>
+          <div class="ph-badge" id="phBadge"><b id="phNBadge">0</b><span id="phBadgeLbl">nuts</span></div>
           <div class="ph-busy hidden" id="phBusy">Analysing</div>
+          <div class="ph-busy ai hidden" id="phAiBusy"><i class="spin" aria-hidden="true"></i>Asking AI...</div>
+          <div class="ph-ai-badge hidden" id="phAiBadge"><b id="phAiBadgeN">0</b><span>AI nuts</span><em id="phAiBadgeC"></em></div>
         </div>
         <div id="phShutterRow" class="btn-row one" hidden><button id="phShutter" class="start full" type="button"><span>Capture</span></button></div>
         <div class="seg ph-view" role="tablist" aria-label="View">
@@ -153,7 +155,12 @@
           <button type="button" data-v="compare" role="tab" aria-selected="false">Compare</button>
         </div>
         <div class="field ph-swipe" id="phSwipeRow" hidden><label for="phSwipe">Swipe compare <b id="phSwipeV">50%</b></label><input type="range" id="phSwipe" min="0" max="100" value="50"></div>
-        <div class="ph-count"><b id="phN">0</b><span>nuts <small id="phNsub" class="dim"></small></span></div>
+        <div class="ph-count"><b id="phN">0</b><span><em id="phNLbl">nuts</em> <small id="phNsub" class="dim"></small></span></div>
+        <div class="ph-src hidden" id="phSrc" role="group" aria-label="Which count to save">
+          <button type="button" data-src="phone" class="on" aria-pressed="true">On-phone <b id="phSrcPhone">0</b></button>
+          <button type="button" data-src="ai" aria-pressed="false">AI <b id="phSrcAi">0</b></button>
+          <small id="phSaving">Saving the on-phone count</small>
+        </div>
       </div>
       <div class="card">
         <div class="ph-filters" role="group" aria-label="Filter">
@@ -185,8 +192,15 @@
         <div class="field"><label for="phSm">Smoothing <b id="phSmV"></b></label><input type="range" id="phSm" min="0" max="100" value="30"></div>
         <div class="field"><label for="phTopN">Only show best N <b id="phTopNV"></b></label><input type="range" id="phTopN" min="0" max="100" value="0"></div>
         <label class="chk"><input id="phEnh" type="checkbox"> Contrast enhance (CLAHE-style)</label>
-        <div class="btn-row two"><button id="phReset" class="soft" type="button"><span>Clear my edits</span></button><button id="phAi" class="soft" type="button" disabled title="Server-side AI count (coming)"><span>AI count</span></button></div>
-        <div id="phAiNote" class="dim small-txt"></div>
+        <div class="btn-row two"><button id="phReset" class="soft" type="button"><span>Clear my edits</span></button><button id="phAi" class="soft" type="button" disabled aria-busy="false" title="Second opinion: server-side AI nut count"><i class="spin" aria-hidden="true"></i><span>AI count</span></button></div>
+        <div id="phAiNote" class="dim small-txt" role="status" aria-live="polite"></div>
+        <div id="phAiCost" class="ai-cost hidden">
+          <p><b>AI counts cost money.</b> About 3c per photo, charged to Agronica's OpenAI account (~9c when a photo has around 500 nuts). The on-phone count is always free.</p>
+          <label class="chk"><input id="phAiDontShow" type="checkbox"> Don't show this again</label>
+          <button id="phAiDismiss" class="soft small" type="button"><span>Got it</span></button>
+        </div>
+        <div id="phAiRes" class="ai-res hidden" aria-live="polite"></div>
+        <div id="phAiCount" class="dim small-txt ai-count hidden"></div>
       </div>
       <div class="card">
         <div class="card-title">Yield estimate <span class="est-badge">ESTIMATE</span></div>
@@ -287,6 +301,7 @@
 <script src="config.js"></script>
 <script src="upload.js"></script>
 <script src="photocount.js"></script>
+<script src="aicount.js"></script>
 <script src="app.js"></script>
 <script src="photo.js"></script>
 <script src="extras.js"></script>

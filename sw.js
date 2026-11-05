@@ -1,8 +1,8 @@
-const CACHE = 'macs-yield-marker-v3';
+const CACHE = 'macs-yield-marker-v4';
 const VIEWED = 'myl-tiles-viewed'; // satellite tiles seen while browsing maps (runtime cache, capped, kept across versions)
 const SAVED = 'myl-tiles-saved';   // tiles pre-cached with "Save map area for offline" (written by the page, kept across versions)
 const VIEWED_MAX = 2000, SAVED_MAX = 4000;
-const ASSETS = ['./', './index.html', './style.css', './yield.css', './app.js', './yield.js', './ymap.js', './upload.js', './photocount.js', './photo.js', './extras.js', './config.js', './manifest.json', './ads.json',
+const ASSETS = ['./', './index.html', './style.css', './yield.css', './app.js', './yield.js', './ymap.js', './upload.js', './photocount.js', './aicount.js', './photo.js', './extras.js', './config.js', './manifest.json', './ads.json',
   './vendor/leaflet/leaflet.js', './vendor/leaflet/leaflet.css', './img/helper.png',
   './img/ads/centris-logo.png', './img/ads/corteva-logo.jpg', './img/ads/example-1.svg', './img/ads/example-2.svg', './img/ads/example-3.svg',
   './icons/logo.png', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png',

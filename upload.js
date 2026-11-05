@@ -1,4 +1,6 @@
 /* Queued upload to AgronicaWorld (heat mapping of blocks).
+   v4 adds optional photo-AI fields on a mark: photoCountSrc ('phone'|'ai'), aiCount, aiPhotoCount, aiKgHa, aiNutsPerTree,
+   aiConfidence, aiModel - all optional, so a v3 mark still sends the same shape.
    Payload is FLAT (one session per request): { deviceId, appVersion, sessionId, submittedAt, farm?, block?, variety?,
    contact?, marks: [...], track?: [...] }. Disabled while YM_CONFIG.INGEST_URL / INGEST_KEY are blank (config.js).
    Queue lives in localStorage, survives reloads/offline; retries with exponential backoff (30 s .. 30 min),
@@ -56,6 +58,15 @@
     var pc = int1(m.photoCount); if (pc != null && pc >= 0) o.photoCount = pc;
     var npt = num1(m.estNutsPerTree); if (npt != null && npt >= 0) o.estNutsPerTree = npt;
     var kgha = num1(m.estKgHa); if (kgha != null && kgha >= 0) o.estKgHa = kgha;
+    // v4: which photo count the mark holds ('phone' | 'ai') and what the AI second opinion said, so a block can be
+    // recalibrated against both. Optional and additive: a mark without them (all v3 marks) sends exactly as before.
+    if (m.photoCountSrc === 'ai' || m.photoCountSrc === 'phone') o.photoCountSrc = m.photoCountSrc;
+    var ac = int1(m.aiCount); if (ac != null && ac >= 0) o.aiCount = ac;
+    var apc = int1(m.aiPhotoCount); if (apc != null && apc >= 0) o.aiPhotoCount = apc;
+    var akg = num1(m.aiKgHa); if (akg != null && akg >= 0) o.aiKgHa = akg;
+    var anpt = num1(m.aiNutsPerTree); if (anpt != null && anpt >= 0) o.aiNutsPerTree = anpt;
+    var acf = num1(m.aiConfidence); if (acf != null && acf >= 0 && acf <= 1) o.aiConfidence = Math.round(acf * 100) / 100;
+    if (m.aiModel) o.aiModel = clip(m.aiModel, 40);
     return o;
   }
   // Flat top level: no nested session object.
