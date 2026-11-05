@@ -189,6 +189,14 @@ and NIS weight, so a tap correction moves the saved kg/ha immediately.
 `aicount.js` holds the downscale, the POST, the error wording, and the spend bookkeeping; `photo.js` owns the UI state
 (overlay, side-by-side selector, save). Tests stub the endpoint - `tests/ai.test.js` never touches the real one.
 
+**Live status (2026-11-05):** the endpoint answers `503 {"ok":false,"error":"AI nut counting is not configured (no
+OpenAI key set)"}` until Jonathan sets the OpenAI key server-side; the app shows the "not switched on yet" message and
+the Photo tab behaves exactly as in v3. A live check from the deployed site (button -> cost notice -> call -> 503
+message, on-phone count of 30 kept, no page errors) is in the v4 report. The AI ingest also accepts the new optional
+mark fields (`photoCountSrc`, `aiCount`, `aiPhotoCount`, `aiKgHa`, `aiNutsPerTree`, `aiConfidence`, `aiModel`):
+verified with one `TEST-agent-check-yield` / `TEST` block probe, which the server stored as `unmatched` (no block named
+TEST) - no real farm data was touched.
+
 ## Files
 
 `index.html`, `style.css` (shared Agronica style) + `yield.css`, `yield.js` (ratings, colours, KML/CSV, merge, interpolation, summary),

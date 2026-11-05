@@ -305,6 +305,25 @@ function jpegDims(b) {
   assert.equal(saved.up.aiModel, 'gpt-4.1-mini'); assert.equal(saved.up.estKgHa, saved.m.estKgHa);
   ok(`saved mark + upload payload carry the corrected AI count (${saved.n} vs on-phone ${saved.phone}), raw AI 9, model, confidence, estNutsPerTree/estKgHa/${saved.m.rating}`);
 
+  // ---- a new photo drops the old AI result (it was measured on the old frame) and saves the on-phone count ----
+  const fresh = await page.evaluate(async () => {
+    const im = new Image(); im.src = 'tests/photos/p2.jpg'; await im.decode();
+    Photo.setImage(im, { ts: Date.now(), pos: App.lastPos(), row: '4', tree: '2', block: 'Block 7', variety: 'A16' });
+    await new Promise(r => setTimeout(r, 1000));
+    const a = { ai: Photo.ai(), src: Photo.src(), active: Photo.activeCount(), phone: Photo.count(),
+      barHidden: document.getElementById('phSrc').classList.contains('hidden'), cardHidden: document.getElementById('phAiRes').classList.contains('hidden'),
+      badgeHidden: document.getElementById('phAiBadge').classList.contains('hidden') };
+    document.getElementById('phSave').click();
+    const m = App.state().marks.slice(-1)[0];
+    return { a, saved: { photoCount: m.photoCount, src: m.photoCountSrc, aiCount: m.aiCount } };
+  });
+  assert.equal(fresh.a.ai, null, 'AI result cleared with the photo it belonged to');
+  assert.equal(fresh.a.src, 'phone'); assert.equal(fresh.a.active, fresh.a.phone);
+  assert.ok(fresh.a.barHidden && fresh.a.cardHidden && fresh.a.badgeHidden, 'AI furniture hidden again');
+  assert.equal(fresh.saved.photoCount, fresh.a.phone, 'the on-phone count is what saves without an AI result');
+  assert.equal(fresh.saved.src, 'phone'); assert.equal(fresh.saved.aiCount, undefined);
+  ok('load a different photo -> old AI result dropped, on-phone count saves (photoCountSrc phone, no aiCount)');
+
   // ---- 503: clear "not switched on yet" message, on-phone result intact ----
   mode = '503';
   const r503 = await page.evaluate(async () => {
